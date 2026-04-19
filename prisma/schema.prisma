@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// --- CAPA DE USUARIOS SEPARADA ---
+
+model Cliente {
+  id           Int          @id @default(autoincrement())
+  nombre       String
+  apellido     String
+  cedula       String       @unique
+  correo       String       @unique
+  password     String
+  direccion    String?
+  tipoCliente  String       @default("bronce") // bronce, plata, oro
+  conexiones   Conexion[]
+  pedidos      Pedido[]
+  createdAt    DateTime     @default(now())
+}
+
+model Personal {
+  id           Int          @id @default(autoincrement())
+  nombre       String
+  apellido     String
+  correo       String       @unique
+  password     String
+  rol          String       // superAdmin, gerente, trabajador
+  status       Boolean      @default(true)
+  sucursalId   Int
+  sucursal     Sucursal     @relation(fields: [sucursalId], references: [id])
+  createdAt    DateTime     @default(now())
+}
+
+// --- CAPA DE INFRAESTRUCTURA ---
+
+model Sucursal {
+  id              Int          @id @default(autoincrement())
+  nombre          String
+  ciudad          String
+  direccion       String
+  coordenadasLat  Float
+  coordenadasLng  Float
+  tipo            String       @default("secundaria")
+  status          Boolean      @default(true)
+  personal        Personal[]
+  inventarios     Inventario[]
+  pedidos         Pedido[]
+  informes        InformeAnalitico[]
+}
+
+// --- CAPA DE PRODUCTOS E INVENTARIO ---
+
+model Producto {
+  id              Int               @id @default(autoincrement())
+  nombre          String
+  tipo            String
+  descripcion     String?
+  precioBase      Float
+  emailProveedor  String
+  inventarios     Inventario[]
+  detallesPedido  PedidoDetalle[]
+}
+
+model Inventario {
+  id              Int       @id @default(autoincrement())
+  sucursalId      Int
+  productoId      Int
+  stockActual     Int
+  stockMinimo     Int
+  ultimaReposicion DateTime @updatedAt
+
+  sucursal        Sucursal  @relation(fields: [sucursalId], references: [id])
+  producto        Producto  @relation(fields: [productoId], references: [id])
+
+  @@unique([sucursalId, productoId]) // Evita duplicar un producto en la misma sede
+}
+
+// --- CAPA DE RECOLECCIÓN Y VENTAS ---
+
+model Conexion {
+  id           Int      @id @default(autoincrement())
+  clienteId    Int
+  ip           String
+  latitud      Float
+  longitud     Float
+  dispositivo  String?
+  fecha        DateTime @default(now())
+  cliente      Cliente  @relation(fields: [clienteId], references: [id])
+}
+
+model Pedido {
+  id           Int             @id @default(autoincrement())
+  clienteId    Int
+  sucursalId   Int
+  total        Float
+  status       String          @default("pendiente")
+  fecha        DateTime        @default(now())
+  cliente      Cliente         @relation(fields: [clienteId], references: [id])
+  sucursal     Sucursal        @relation(fields: [sucursalId], references: [id])
+  detalles     PedidoDetalle[]
+}
+
+model PedidoDetalle {
+  id           Int      @id @default(autoincrement())
+  pedidoId     Int
+  productoId   Int
+  cantidad     Int
+  precioUnit   Float
+  pedido       Pedido   @relation(fields: [pedidoId], references: [id])
+  producto     Producto @relation(fields: [productoId], references: [id])
+}
+
+model Competidor {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  ciudad          String
+  direccion       String?
+  coordenadasLat  Float
+  coordenadasLng  Float
+  cantReviews     Int      @default(0)
+  ratingPromedio  Float?
+  tipoNegocio     String?
+  ultimaVerif     DateTime @default(now())
+}
+
+// --- CAPA DE INTELIGENCIA ARTIFICIAL ---
+
+model InformeAnalitico {
+  id               Int      @id @default(autoincrement())
+  tipoAnalisis     String   // ventas, demanda_geo, comportamiento
+  sucursalId       Int?
+  rangoInicio      DateTime
+  rangoFin         DateTime
+  dataJson         Json     // Aquí se guarda el resultado del análisis
+  insightIA        String? 
+  createdAt        DateTime @default(now())
+  sucursal         Sucursal? @relation(fields: [sucursalId], references: [id])
+}

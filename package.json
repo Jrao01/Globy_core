@@ -1,0 +1,33 @@
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "description": "Backend de Globy(a thesis project by Julian Amer)",
+    "main": "index.js",
+    "scripts": {
+        "dev": "tsx watch src/app.ts",
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "getSkills": "npx autoskills --verbose"
+    },
+    "keywords": [],
+    "author": "JRAO AKA Data Stealer",
+    "license": "ISC",
+    "type": "module",
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/express": "^5.0.6",
+        "prisma": "^7.5.0",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "@prisma/adapter-better-sqlite3": "^7.5.0",
+        "@prisma/client": "^7.5.0",
+        "@types/multer": "^2.1.0",
+        "better-sqlite3": "^12.8.0",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "multer": "^2.1.1",
+        "openai": "^6.32.0",
+        "tsx": "^4.21.0"
+    }
+}
