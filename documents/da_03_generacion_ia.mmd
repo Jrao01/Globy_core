@@ -1,0 +1,62 @@
+%% DA-03 (Módulo 8) — Flujo de Generación de Inteligencia con IA (Globy)
+%% Sistema: Globy | UNERG — Proyecto Especial de Grado
+%% Renderizar en: https://mermaid.live
+
+flowchart TD
+
+    A([Inicio])
+
+    A --> B[Administrador o Gerente navega\na la pagina /globy en React]
+    B --> C[Selecciona tipo de analisis:\nPatrones - Zonas de Demanda\no Comportamiento]
+    C --> D[Define rango de fechas\ny sucursal objetivo opcional]
+    D --> E[Presionar: Generar Analisis]
+    E --> F[Enviar POST /analisis/generar\ncon tipo, rangoInicio, rangoFin,\nsucursalId y globy_token]
+
+    F --> G{Middleware verifyToken\nToken JWT valido\ny no expirado 24h?}
+    G -- No --> H[Retornar 401:\nToken invalido o expirado]
+    H --> Z([Fin])
+
+    G -- Si --> J{Middleware verifyRole\nRol = admin o gerente?}
+    J -- No --> K[Retornar 403:\nAcceso Denegado]
+    K --> Z
+
+    J -- Si --> L[Extraer payload JWT:\nid, rol, sucursalId]
+    L --> M{Tipo de analisis\nsolicitado?}
+
+    M -- Patrones de Venta --> N[Prisma ORM: consultar\nPedido + PedidoDetalle\n+ Producto en rango de fechas]
+    N --> O[Mapear: agrupar por producto,\ncategoria y totales por periodo]
+
+    M -- Zonas de Demanda --> P[Prisma ORM: consultar\nConexion + Cliente\n+ Competidor georeferenciados]
+    P --> Q[Mapear: agrupar coordenadas\npor clusters geograficos\ne intensidad]
+
+    M -- Comportamiento --> R[Prisma ORM: consultar\nCliente + Pedido\n+ Conexion historicas]
+    R --> S[Mapear: habitos, frecuencia\ny tipoCliente Bronce-Plata-Oro]
+
+    O --> T[Serializar datos mapeados\ncomo JSON estructurado\n+ metadatos del contexto]
+    Q --> T
+    S --> T
+
+    T --> U[Construir prompt enriquecido\ncon contexto del negocio\ny datos serializados]
+    U --> V[Enviar solicitud asincrona\nal Agente LLM - Globy IA]
+    V --> W{El Agente IA\nrespondio correctamente?}
+    W -- No --> X[Registrar error en log\nRetornar 500: Error del Agente]
+    X --> Z
+
+    W -- Si --> Y[Recibir respuesta del LLM:\n1. dataJson estructurado\n2. insightIA con narrativa]
+
+    Y --> AA[Prisma ORM: InformeAnalitico.create\nCampos: tipoAnalisis, sucursalId,\nrangoInicio, rangoFin,\ndataJson, insightIA]
+    AA --> AB{Persistencia\nexitosa en DB?}
+    AB -- No --> AC[Retornar 500:\nError al guardar informe]
+    AC --> Z
+
+    AB -- Si --> AD[Recuperar ID del\ninforme persistido]
+    AD --> AE[Invocar generador PDF:\nComponer portada, tablas,\ngraficas e insights del LLM]
+    AE --> AF{PDF generado\ncorrectamente?}
+    AF -- No --> AG[Retornar 500:\nError al generar PDF]
+    AG --> Z
+
+    AF -- Si --> AH[Adjuntar PDF en respuesta HTTP\ncomo archivo descargable]
+    AH --> AI[Frontend recibe 200:\nMostrar notificacion de exito]
+    AI --> AJ[Habilitar boton:\nDescargar Reporte PDF]
+    AJ --> AK[Usuario descarga\nel archivo PDF]
+    AK --> Z

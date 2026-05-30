@@ -6,7 +6,7 @@ Globy es el núcleo de procesamiento y análisis de una plataforma de expansión
 *   **Runtime**: Node.js (v18+)
 *   **Framework**: Express.js (v5+)
 *   **ORM**: Prisma
-*   **Base de Datos**: PostgreSQL / SQLite (Desarrollo)
+*   **Base de Datos**: PostgreSQL (Producción) / SQLite (Desarrollo local)
 *   **Lenguaje**: TypeScript
 *   **IA**: Integración de Agentes para procesamiento de reportes analíticos.
 *   **Notificaciones**: Servicio SMTP vía Nodemailer para automatización de suministros.
@@ -20,23 +20,13 @@ El backend de Globy está estructurado bajo un modelo relacional robusto que per
 
 ---
 
-## 📂 Estructura de Directorios
-```text
-backend/
-├── prisma/                  # Configuración de base de datos y migraciones
-│   ├── schema.prisma        # Definición del modelo de datos
-│   └── migrations/          # Historial de cambios en la base de datos
-├── src/                     # Código fuente del servidor
-│   ├── config/              # Configuraciones globales (Prisma, Cloudinary, etc.)
-│   ├── controllers/         # Lógica de negocio y manejo de peticiones
-│   ├── generated/           # Cliente de Prisma generado (Tipos e interfaces)
-│   ├── routes/              # Definición de rutas de la API
-│   ├── types/               # Interfaces y tipos personalizados de TypeScript
-│   └── app.ts               # Punto de entrada de la aplicación
-├── .env                     # Variables de entorno (Sensible)
-├── package.json             # Dependencias y scripts
-└── tsconfig.json            # Configuración de TypeScript
-```
+## 🛣️ Estructura de Rutas (API)
+La API está organizada en módulos. Todas las rutas cuelgan del prefijo definido en el servidor principal:
+
+*   **Clientes**: `/clientes` (Gestión de usuarios finales)
+*   **Personal**: `/personal` (Gestión de empleados y administración)
+*   **Productos**: `/productos` (Catálogo global de artículos)
+*   **Sucursales**: `/sucursales` (Gestión de sedes físicas)
 
 ---
 
@@ -44,31 +34,29 @@ backend/
 
 Todos los controladores esperan datos en el cuerpo de la petición (`req.body`) y devuelven respuestas en formato JSON.
 
-### 👥 Clientes (`ClienteControllers.ts`)
-*   **`ClienteRegister`**: 
-    *   `nombre`, `apellido`, `cedula`, `correo`, `password`, `direccion` (opcional).
-*   **`ClienteLogin`**: 
-    *   `correo`, `password`.
-*   **`UpdateCliente`**: 
-    *   `id` (requerido), `nombre`, `apellido`, `correo`, etc. (campos opcionales a editar).
+### 👥 Clientes (`ClienteCOntrollers.ts`)
+*   `POST /clientes/register`: Registro de nuevos clientes.
+*   `POST /clientes/login`: Autenticación de cliente.
+*   `POST /clientes/data`: Obtiene datos de un cliente específico (requiere `id`).
+*   `PUT /clientes/update`: Actualiza campos del cliente (requiere `id` y datos a modificar).
 
 ### 👨‍💼 Personal (`PersonalControllers.ts`)
-*   **`PersonalRegister`**: 
-    *   `nombre`, `apellido`, `correo`, `password`, `rol`, `sucursalId`.
-*   **`PersonalLogin`**: 
-    *   `correo`, `password`. Devuelve los datos del empleado y su sucursal asociada.
+*   `POST /personal/register`: Registro de personal asociado a una `sucursalId`.
+*   `POST /personal/login`: Login de empleado. Devuelve datos del usuario y su sucursal.
+*   `POST /personal/data`: Obtiene detalle por ID.
+*   `PUT /personal/update`: Actualiza perfil o configuración de empleado.
 
-### 📦 Productos (`ProductoControllers.ts`)
-*   **`CreateProducto`**: 
-    *   `nombre`, `tipo`, `descripcion`, `precioBase`, `emailProveedor`.
-*   **`UpdateProducto`**: 
-    *   `id` (requerido) y campos a modificar.
+### 📦 Productos (`Producto.ts`)
+*   `POST /productos/create`: Añade un producto al catálogo.
+*   `GET /productos/all`: Lista completa de productos disponibles.
+*   `POST /productos/data`: Consulta detalle de un producto (requiere `id`).
+*   `PUT /productos/update`: Edita información o precios.
 
 ### 🏢 Sucursales (`SucursalControllers.ts`)
-*   **`CreateSucursal`**: 
-    *   `nombre`, `ciudad`, `direccion`, `coordenadasLat`, `coordenadasLng`.
-*   **`GetAllSucursales`**: 
-    *   No requiere parámetros. Devuelve todas las sedes con un conteo de su personal y productos.
+*   `POST /sucursales/create`: Registra una nueva sede física.
+*   `GET /sucursales/all`: Lista todas las sedes con conteo de personal y productos.
+*   `POST /sucursales/data`: Detalle de sede (incluye lista de personal asignado).
+*   `PUT /sucursales/update`: Edita ubicación o configuración de sucursal.
 
 ---
 
@@ -82,7 +70,7 @@ Todos los controladores esperan datos en el cuerpo de la petición (`req.body`) 
     ```bash
     npm install
     ```
-3.  **Variables de Entorno**: Configura tu archivo `.env` con la `DATABASE_URL`.
+3.  **Variables de Entorno**: Configura tu archivo `.env` con la `DATABASE_URL`. (Por defecto usa SQLite para desarrollo).
 4.  **Generar Cliente Prisma**:
     ```bash
     npx prisma generate

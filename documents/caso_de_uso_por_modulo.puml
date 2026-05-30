@@ -1,0 +1,443 @@
+' =========================================
+' SISTEMA   : Globy
+' GRADO      : Proyecto Especial de Grado
+' CASA       : UNERG - Univ. Nac. Exp. Romulo Gallegos
+' ARTEFACTO  : Diagramas de Casos de Uso por Modulo (9)
+' NOTACION   : UML 2.5 — PlantUML
+' ARCHIVO    : caso_de_uso_por_modulo.puml
+' =========================================
+' INSTRUCCION: Cada bloque @startuml...@enduml es un
+' diagrama independiente. Pegalos de uno en uno en
+' https://www.plantuml.com/plantuml/uml/
+' o usa la extension PlantUML de VS Code (Alt+D).
+' =========================================
+
+
+' =========================================
+' MODULO 1: Autenticacion, Seguridad y Acceso
+' =========================================
+@startuml M01_Autenticacion
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 1 — Autenticacion, Seguridad y Acceso\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+actor Trabajador    as TRB
+actor Delivery      as DEL
+actor Cliente       as CLI
+
+package "Autenticacion, Seguridad y Acceso" {
+    usecase "Iniciar Sesion\n(Personal)"        as UC01
+    usecase "Cerrar Sesion"                     as UC02
+    usecase "Validar Token JWT\n(24 horas)"     as UC03
+    usecase "Restringir Acceso\npor Rol"        as UC04
+    usecase "Iniciar Sesion\n(Cliente)"         as UC05
+    usecase "Registrar Cliente"                 as UC06
+
+    UC01 ..> UC03 : <<include>>
+    UC01 ..> UC04 : <<include>>
+    UC05 ..> UC03 : <<include>>
+}
+
+ADM --> UC01
+ADM --> UC02
+GER --> UC01
+GER --> UC02
+TRB --> UC01
+TRB --> UC02
+DEL --> UC01
+DEL --> UC02
+CLI --> UC05
+CLI --> UC06
+CLI --> UC02
+
+@enduml
+
+
+' =========================================
+' MODULO 2: Gestion de Sucursales
+' =========================================
+@startuml M02_Sucursales
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 2 — Gestion de Sucursales\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+
+package "Gestion de Sucursales" {
+    usecase "Crear Sucursal"                        as UC07
+    usecase "Listar Sucursales"                     as UC08
+    usecase "Editar Sucursal"                       as UC09
+    usecase "Consultar Detalle\nde Sucursal"        as UC10
+    usecase "Registrar Coordenadas\nGeograficas"    as UC11
+    usecase "Asignar Tipo\nde Sucursal"             as UC12
+
+    UC07 ..> UC11 : <<include>>
+    UC07 ..> UC12 : <<include>>
+    UC09 ..> UC11 : <<include>>
+}
+
+ADM --> UC07
+ADM --> UC08
+ADM --> UC09
+ADM --> UC10
+GER --> UC08
+GER --> UC10
+
+@enduml
+
+
+' =========================================
+' MODULO 3: Productos e Inventario
+' =========================================
+@startuml M03_Productos_Inventario
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 3 — Productos e Inventario\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+actor Trabajador    as TRB
+actor Delivery      as DEL
+
+package "Productos e Inventario" {
+    usecase "Crear Producto"                        as UC13
+    usecase "Editar Producto"                       as UC14
+    usecase "Listar Productos"                      as UC15
+    usecase "Listar Categorias"                     as UC16
+    usecase "Consultar Inventario\npor Sucursal"    as UC17
+    usecase "Actualizar Stock\n(Upsert)"            as UC18
+    usecase "Vincular Producto\na Categoria"        as UC19
+    usecase "Definir Stock\nMinimo"                 as UC20
+
+    UC13 ..> UC19 : <<include>>
+    UC18 ..> UC20 : <<include>>
+    UC17 ..> UC16 : <<include>>
+}
+
+ADM --> UC13
+ADM --> UC14
+ADM --> UC15
+ADM --> UC16
+ADM --> UC17
+ADM --> UC18
+GER --> UC15
+GER --> UC16
+GER --> UC17
+TRB --> UC15
+DEL --> UC15
+
+@enduml
+
+
+' =========================================
+' MODULO 4: Gestion de Personal
+' =========================================
+@startuml M04_Gestion_Personal
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 4 — Gestion de Personal\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+
+package "Gestion de Personal" {
+    usecase "Registrar Personal"                    as UC21
+    usecase "Registrar Personal\nde su Sucursal"     as UC21_GER
+    usecase "Listar Personal"                       as UC22
+    usecase "Editar Personal"                       as UC23
+    usecase "Editar Personal\nde su Sucursal"       as UC23_GER
+    usecase "Asignar Rol\nal Personal"              as UC24
+    usecase "Asociar Personal\na Sucursal"          as UC25
+    usecase "Modificar Estatus\nActivo/Inactivo"     as UC26
+
+    UC21 ..> UC24 : <<include>>
+    UC21 ..> UC25 : <<include>>
+    UC21_GER ..> UC24 : <<include>>
+    UC21_GER ..> UC25 : <<include>>
+    
+    UC23 ..> UC24 : <<include>>
+    UC23 ..> UC25 : <<include>>
+    UC23 ..> UC26 : <<include>>
+    UC23_GER ..> UC24 : <<include>>
+    UC23_GER ..> UC25 : <<include>>
+    UC23_GER ..> UC26 : <<include>>
+}
+
+ADM --> UC21
+ADM --> UC22
+ADM --> UC23
+
+GER --> UC21_GER
+GER --> UC22
+GER --> UC23_GER
+
+@enduml
+
+
+' =========================================
+' MODULO 5: Gestion de Clientes
+' =========================================
+@startuml M05_Gestion_Clientes
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 5 — Gestion de Clientes\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+actor Cliente       as CLI
+
+package "Gestion de Clientes" {
+    usecase "Visualizar Clientes\n(Panel Admin)"            as UC27
+    usecase "Consultar Detalle\nde Cliente"                 as UC28
+    usecase "Clasificar Perfil\nde Cliente"                 as UC29
+    usecase "Actualizar Datos\nPersonales"                  as UC30
+    usecase "Asignar Categoria:\nBronce"                    as UC31
+    usecase "Asignar Categoria:\nPlata"                     as UC32
+    usecase "Asignar Categoria:\nOro"                       as UC33
+
+    UC27 ..> UC28 : <<include>>
+    UC29 ..> UC31 : <<extend>>
+    UC29 ..> UC32 : <<extend>>
+    UC29 ..> UC33 : <<extend>>
+}
+
+ADM --> UC27
+ADM --> UC29
+GER --> UC27
+GER --> UC28
+CLI --> UC30
+
+@enduml
+
+
+' =========================================
+' MODULO 6: Pedidos y Logistica de Entregas
+' =========================================
+@startuml M06_Pedidos_Entregas
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 6 — Pedidos y Logistica de Entregas\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+actor Trabajador    as TRB
+actor Delivery      as DEL
+actor Cliente       as CLI
+actor "Sistema\n(Automatico)" as SYS
+
+package "Pedidos y Logistica de Entregas" {
+    usecase "Realizar Pedido"                       as UC34
+    usecase "Seleccionar Productos\ny Cantidades"   as UC35
+    usecase "Calcular Total\ndel Pedido"            as UC36
+    usecase "Asignar Repartidor\nAutomaticamente"   as UC38_AUTO
+    usecase "Aceptar Pedido Asignado"               as UC38_ACCEPT
+    usecase "Rechazar Pedido Asignado"              as UC38_REJECT
+    usecase "Actualizar Estado\ndel Pedido"         as UC39
+    usecase "Marcar: Preparado"                     as UC40
+    usecase "Marcar: En Camino"                     as UC41
+    usecase "Marcar: Entregado"                     as UC42
+    usecase "Confirmar Recepcion\nde Pedido"        as UC39_CONFIRM
+    usecase "Supervisar Pedidos\nActivos"           as UC43
+
+    UC34 ..> UC35 : <<include>>
+    UC34 ..> UC36 : <<include>>
+    UC39 ..> UC40 : <<extend>>
+    UC39 ..> UC41 : <<extend>>
+    UC39 ..> UC42 : <<extend>>
+}
+
+CLI --> UC34
+CLI --> UC39_CONFIRM
+TRB --> UC34
+TRB --> UC39_CONFIRM
+DEL --> UC38_ACCEPT
+DEL --> UC38_REJECT
+DEL --> UC39
+SYS --> UC38_AUTO
+ADM --> UC43
+GER --> UC43
+
+@enduml
+
+
+' =========================================
+' MODULO 7: Conexiones y Sensor Geo
+' =========================================
+@startuml M07_Conexiones_SensorGeo
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 7 — Conexiones y Sensor Geo\n[Sistema Globy]
+
+actor Cliente as CLI
+actor "Sistema\n(Automatico)" as SYS
+
+package "Conexiones y Sensor Geo" {
+    usecase "Iniciar Navegacion\nen el Sistema"             as UC44_AUTO
+    usecase "Capturar IP\ny Dispositivo de forma automatica" as UC47
+    usecase "Determinar Coordenadas\npor IP del Cliente"    as UC45_IP
+    usecase "Registrar Conexion\nen Base de Datos"          as UC48
+    usecase "Alimentar Modulo\nde Inteligencia Artificial"  as UC49
+
+    UC44_AUTO ..> UC47 : <<include>>
+    UC44_AUTO ..> UC45_IP : <<include>>
+    UC44_AUTO ..> UC48 : <<include>>
+    UC48 ..> UC49 : <<include>>
+}
+
+CLI --> UC44_AUTO
+SYS --> UC47
+SYS --> UC45_IP
+SYS --> UC48
+
+@enduml
+
+
+' =========================================
+' MODULO 8: Analisis con IA (Globy)
+' =========================================
+@startuml M08_Analisis_IA_Globy
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 8 — Analisis con Inteligencia Artificial (Globy)\n[Sistema Globy]
+
+actor Administrador as ADM
+actor Gerente       as GER
+
+package "Analisis con Inteligencia Artificial — Globy" {
+    usecase "Solicitar Analisis\ncon IA"                    as UC50
+    usecase "Generar Reporte de\nPatrones de Venta"         as UC51
+    usecase "Detectar Zonas de\nDemanda Hot Spots"          as UC52
+    usecase "Analizar Comportamiento\nde Compra"            as UC53
+    usecase "Exportar Reporte\na PDF"                       as UC54
+    usecase "Visualizar Mapa\nde Calor"                     as UC55
+    usecase "Persistir InformeAnalitico\nen Base de Datos"  as UC56
+    usecase "Consultar Datos\nde Competidores"              as UC57
+
+    UC51 ..> UC50 : <<include>>
+    UC52 ..> UC50 : <<include>>
+    UC53 ..> UC50 : <<include>>
+    UC51 ..> UC56 : <<include>>
+    UC52 ..> UC56 : <<include>>
+    UC53 ..> UC56 : <<include>>
+    UC52 ..> UC55 : <<include>>
+    UC52 ..> UC57 : <<include>>
+    UC54 ..> UC56 : <<include>>
+}
+
+ADM --> UC51
+ADM --> UC52
+ADM --> UC53
+ADM --> UC54
+ADM --> UC55
+GER --> UC51
+GER --> UC52
+GER --> UC53
+GER --> UC54
+GER --> UC55
+
+@enduml
+
+
+' =========================================
+' MODULO 9: Configuracion del Sistema y Soporte
+' =========================================
+@startuml M09_Configuracion_Soporte
+
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor Black
+skinparam ActorBorderColor Black
+skinparam UseCaseBorderColor Black
+skinparam ActorBackgroundColor White
+skinparam UseCaseBackgroundColor White
+
+title Modulo 9 — Configuracion del Sistema y Soporte\n[Sistema Globy]
+
+actor Administrador as ADM
+
+package "Configuracion del Sistema y Soporte" {
+    usecase "Editar Datos Fiscales\nde la Empresa"              as UC58
+    usecase "Subir Logo\nInstitucional"                         as UC59
+    usecase "Configurar Servidor\nSMTP de Correo"               as UC60
+    usecase "Validar Formato\nde Imagen jpg-png-webp max 5MB"   as UC61
+    usecase "Persistir Configuracion\nUpsert EmpresaConfig"     as UC62
+
+    UC59 ..> UC61 : <<include>>
+    UC58 ..> UC62 : <<include>>
+    UC59 ..> UC62 : <<include>>
+    UC60 ..> UC62 : <<include>>
+}
+
+ADM --> UC58
+ADM --> UC59
+ADM --> UC60
+
+@enduml

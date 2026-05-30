@@ -1,0 +1,46 @@
+%% DA-06 (Módulo 7) — Registro y Captura de Geolocalización (Totalmente Automática por IP)
+%% Sistema: Globy | UNERG — Proyecto Especial de Grado
+%% Renderizar en: https://mermaid.live
+
+flowchart TD
+
+    A([Inicio])
+
+    A --> B[Cliente accede al portal\no app movil de Globy]
+    B --> C{El cliente tiene\nsesion activa JWT?}
+    C -- No --> D[Redirigir a\npagina de Login]
+    D --> Z([Fin])
+
+    C -- Si --> E[Verificar token JWT:\nextraer clienteId del payload]
+    E --> F[Capturar IP del cliente\ndesde request.ip de forma silenciosa]
+    F --> G[Capturar datos del Dispositivo\ndesde User-Agent header]
+
+    G --> H[Ejecutar servicio de Geolocalizacion por IP\npara resolver coordenadas lat/lng]
+    H --> I{¿Se resolvieron las coordenadas\ncorrectamente por IP?}
+
+    I -- Si --> J[Asignar latitud y longitud\nobtenidas por geolocalizacion de IP]
+    J --> L[Fuente: GEOLOCALIZACION_IP]
+
+    I -- No --> K[Asignar coordenadas de la sucursal\nmas cercana como respaldo por defecto]
+    K --> M[Fuente: DEFAULT_SUCURSAL]
+
+    L --> N[Construir objeto de conexion:\nclienteId, ip, latitud,\nlongitud, dispositivo, fuente]
+    M --> N
+
+    N --> O[Enviar POST /conexiones/register\ncon Bearer Token JWT\nen cabecera Authorization]
+
+    O --> P{Middleware verifyToken\nToken JWT valido?}
+    P -- No --> Q[Retornar 401:\nToken invalido o expirado]
+    Q --> Z
+
+    P -- Si --> R[Controller: recibir\npayload de conexion]
+    R --> S[Prisma ORM: Conexion.create\nCampos: clienteId, ip,\nlatitud, longitud, dispositivo,\nfecha: DateTime.now]
+
+    S --> T{Registro guardado\ncorrectamente en DB?}
+    T -- No --> U[Registrar error en log\nde forma silenciosa\nSin notificar al cliente]
+    U --> Z
+
+    T -- Si --> V[Retornar 201:\nConexion registrada exitosamente]
+    V --> W[Datos disponibles para\nModulo 8 - Analisis IA Globy:\nDeteccion de Hot Spots]
+    W --> X[Cliente continua navegando\nel portal sin interrupcion]
+    X --> Z

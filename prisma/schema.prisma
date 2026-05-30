@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated"
 }
 
@@ -7,8 +7,26 @@ datasource db {
   provider = "sqlite"
 }
 
-// --- CAPA DE USUARIOS SEPARADA ---
+// --- CONFIGURACIÓN GLOBAL DE LA EMPRESA ---
+model EmpresaConfig {
+  id              Int      @id @default(1)
+  nombreEmpresa   String
+  rif             String   @unique
+  direccionFiscal String
+  telefono        String?
+  logoUrl         String?
+  moneda          String   @default("USD")
+  
+  // Configuración SMTP para envío de correos automáticos
+  smtpHost        String?
+  smtpPort        Int?
+  smtpUser        String?
+  smtpPass        String?
+  
+  updatedAt       DateTime @updatedAt
+}
 
+// --- GESTIÓN DE USUARIOS Y ACCESO ---
 model Cliente {
   id           Int          @id @default(autoincrement())
   nombre       String
@@ -17,27 +35,35 @@ model Cliente {
   correo       String       @unique
   password     String
   direccion    String?
-  tipoCliente  String       @default("bronce") // bronce, plata, oro
+  tipoCliente  String       @default("bronce") // Clasificación para análisis de comportamiento
   conexiones   Conexion[]
   pedidos      Pedido[]
   createdAt    DateTime     @default(now())
+}
+
+enum PersonalRol {
+  admin
+  gerente
+  trabajador
+  delivery
 }
 
 model Personal {
   id           Int          @id @default(autoincrement())
   nombre       String
   apellido     String
+  cedula       String       @unique
   correo       String       @unique
   password     String
-  rol          String       // superAdmin, gerente, trabajador
+  rol          PersonalRol  @default(trabajador)
   status       Boolean      @default(true)
-  sucursalId   Int
-  sucursal     Sucursal     @relation(fields: [sucursalId], references: [id])
+  sucursalId   Int?
+  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id])
+  pedidosAsignados Pedido[] @relation("Repartidor")
   createdAt    DateTime     @default(now())
 }
 
-// --- CAPA DE INFRAESTRUCTURA ---
-
+// --- INFRAESTRUCTURA Y MERCADO ---
 model Sucursal {
   id              Int          @id @default(autoincrement())
   nombre          String
@@ -53,7 +79,26 @@ model Sucursal {
   informes        InformeAnalitico[]
 }
 
-// --- CAPA DE PRODUCTOS E INVENTARIO ---
+model Competidor {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  ciudad          String
+  direccion       String?
+  coordenadasLat  Float
+  coordenadasLng  Float
+  cantReviews     Int      @default(0)
+  ratingPromedio  Float?
+  tipoNegocio     String?
+  ultimaVerif     DateTime @default(now())
+}
+
+// --- PRODUCTOS E INVENTARIO ---
+model Categoria {
+  id          Int        @id @default(autoincrement())
+  nombre      String     @unique
+  descripcion String?
+  productos   Producto[]
+}
 
 model Producto {
   id              Int               @id @default(autoincrement())
@@ -62,6 +107,8 @@ model Producto {
   descripcion     String?
   precioBase      Float
   emailProveedor  String
+  categoriaId     Int
+  categoria       Categoria         @relation(fields: [categoriaId], references: [id])
   inventarios     Inventario[]
   detallesPedido  PedidoDetalle[]
 }
@@ -77,11 +124,10 @@ model Inventario {
   sucursal        Sucursal  @relation(fields: [sucursalId], references: [id])
   producto        Producto  @relation(fields: [productoId], references: [id])
 
-  @@unique([sucursalId, productoId]) // Evita duplicar un producto en la misma sede
+  @@unique([sucursalId, productoId])
 }
 
-// --- CAPA DE RECOLECCIÓN Y VENTAS ---
-
+// --- RECOLECCIÓN DE DATOS (SENSORES) ---
 model Conexion {
   id           Int      @id @default(autoincrement())
   clienteId    Int
@@ -97,11 +143,13 @@ model Pedido {
   id           Int             @id @default(autoincrement())
   clienteId    Int
   sucursalId   Int
+  repartidorId Int?
   total        Float
   status       String          @default("pendiente")
   fecha        DateTime        @default(now())
   cliente      Cliente         @relation(fields: [clienteId], references: [id])
   sucursal     Sucursal        @relation(fields: [sucursalId], references: [id])
+  repartidor   Personal?       @relation("Repartidor", fields: [repartidorId], references: [id])
   detalles     PedidoDetalle[]
 }
 
@@ -115,29 +163,15 @@ model PedidoDetalle {
   producto     Producto @relation(fields: [productoId], references: [id])
 }
 
-model Competidor {
-  id              Int      @id @default(autoincrement())
-  nombre          String
-  ciudad          String
-  direccion       String?
-  coordenadasLat  Float
-  coordenadasLng  Float
-  cantReviews     Int      @default(0)
-  ratingPromedio  Float?
-  tipoNegocio     String?
-  ultimaVerif     DateTime @default(now())
-}
-
-// --- CAPA DE INTELIGENCIA ARTIFICIAL ---
-
+// --- INTELIGENCIA ARTIFICIAL ---
 model InformeAnalitico {
   id               Int      @id @default(autoincrement())
   tipoAnalisis     String   // ventas, demanda_geo, comportamiento
   sucursalId       Int?
   rangoInicio      DateTime
   rangoFin         DateTime
-  dataJson         Json     // Aquí se guarda el resultado del análisis
-  insightIA        String? 
+  dataJson         Json     // Resultados del cruce de datos
+  insightIA        String?  
   createdAt        DateTime @default(now())
   sucursal         Sucursal? @relation(fields: [sucursalId], references: [id])
 }

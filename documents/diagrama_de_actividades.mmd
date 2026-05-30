@@ -1,0 +1,165 @@
+%%=========================================
+%% ARCHIVO: diagrama_de_actividades.mmd
+%%=========================================
+flowchart TD
+
+    %% =================================================================
+    %% DA-01 (Módulo 1 y 5): Registro de Cliente y Segmentación de Perfil
+    %% =================================================================
+    subgraph DA_01 ["DA-01: Registro de Cliente y Segmentacion de Perfil (UC06, UC29)"]
+        direction TB
+        DA01_Start([Inicio]) --> DA01_A["Cliente ejecuta Registrar Cliente"]
+        DA01_A --> DA01_B["Backend valida datos únicos"]
+        DA01_B --> DA01_C["Prisma crea registro en tabla Cliente con categoría inicial 'BRONCE'"]
+        
+        DA01_C --> DA01_D{"¿Monto acumulado\nsupera umbral de\nPlata u Oro?"}
+        
+        DA01_D -- Sí --> DA01_E["Actualiza campo de perfil mediante Prisma.update() a 'PLATA' u 'ORO' y guarda en DB"]
+        DA01_E --> DA01_End([Fin])
+        
+        DA01_D -- No --> DA01_End
+    end
+
+    DA_01 ~~~ DA_02
+
+    %% =================================================================
+    %% DA-02 (Módulo 3): Actualización de Inventario por Sucursal con Lógica Upsert
+    %% =================================================================
+    subgraph DA_02 ["DA-02: Actualización de Inventario por Sucursal con Lógica Upsert (UC18, UC20)"]
+        direction TB
+        DA02_Start([Inicio]) --> DA02_A["Operador edita stock de un ProductoId para una SucursalId"]
+        DA02_A --> DA02_B["Backend recibe payload"]
+        
+        DA02_B --> DA02_C{"¿Existe ya la relación\nen la tabla Inventario\npara esa sucursal?"}
+        
+        DA02_C -- Sí --> DA02_D["Ejecuta Prisma.update() acumulando o restando el stock_actual"]
+        DA02_C -- No --> DA02_E["Ejecuta Prisma.create() inicializando el registro relacional"]
+        
+        DA02_D --> DA02_F{"¿stock_actual <=\nstock_minimo?"}
+        DA02_E --> DA02_F
+        
+        DA02_F -- Sí --> DA02_G["Dispara alerta visual de reposición en el panel administrativo"]
+        DA02_G --> DA02_End([Fin])
+        
+        DA02_F -- No --> DA02_End
+    end
+
+    DA_02 ~~~ DA_03
+
+    %% =================================================================
+    %% DA-03 (Módulo 4): Gestión de Personal con Restricción de Sucursales
+    %% =================================================================
+    subgraph DA_03 ["DA-03: Gestión de Personal con Restricción de Sucursales (UC21_GER, UC23_GER, UC26)"]
+        direction TB
+        DA03_Start([Inicio]) --> DA03_A["Usuario solicita registrar/editar personal"]
+        DA03_A --> DA03_B["Backend valida middleware JWT de 24h"]
+        
+        DA03_B --> DA03_C{"¿Rol es Administrador\no Gerente?"}
+        
+        DA03_C -- Administrador --> DA03_D["UI y Backend permiten asignar cualquier SucursalId"]
+        DA03_C -- Gerente --> DA03_E["UI bloquea campo y Backend valida que la sucursal del nuevo empleado coincida con la SucursalId del Gerente"]
+        
+        DA03_E --> DA03_F{"¿Coincide la\nSucursalId?"}
+        
+        DA03_F -- No --> DA03_G["Retorna 403 Forbidden"]
+        DA03_G --> DA03_End([Fin])
+        
+        DA03_D --> DA03_H["Prisma persiste en DB, actualiza Estatus Activo/Inactivo y frontend refresca pantalla"]
+        DA03_F -- Sí --> DA03_H
+        
+        DA03_H --> DA03_End
+    end
+
+    DA_03 ~~~ DA_04
+
+    %% =================================================================
+    %% DA-04 (Módulo 6): Ciclo de Vida del Pedido y Bucle de Asignación de Delivery
+    %% =================================================================
+    subgraph DA_04 ["DA-04: Ciclo de Vida del Pedido y Bucle de Asignación de Delivery (UC34, UC38_AUTO, UC38_ACCEPT, UC38_REJECT, UC39)"]
+        direction TB
+        DA04_Start([Inicio]) --> DA04_A["Cliente realiza pedido (UC34)"]
+        DA04_A --> DA04_B["Backend crea registro Pedido en estado 'PENDIENTE'"]
+        DA04_B --> DA04_C["Motor busca Delivery disponible más cercano (UC38_AUTO) y notifica"]
+        
+        DA04_C --> DA04_D{"¿Delivery acepta\nel pedido (UC38_ACCEPT / UC38_REJECT)?"}
+        
+        DA04_D -- Rechaza --> DA04_E["Sistema libera la asignación, cambia estado a 'PENDIENTE' y retorna cíclicamente al buscador de Delivery"]
+        DA04_E --> DA04_C
+        
+        DA04_D -- Acepta --> DA04_F["Cambia estado a 'PREPARADO'"]
+        
+        DA04_F --> DA04_G["Delivery retira en Sucursal"]
+        DA04_G --> DA04_H["Cambia estado a 'EN_CAMINO'"]
+        DA04_H --> DA04_I["Llega a destino"]
+        DA04_I --> DA04_J["Cambia estado a 'ENTREGADO'"]
+        
+        DA04_J --> DA04_K{"¿Cliente confirma\nrecepción (UC39_CONFIRM)?"}
+        
+        DA04_K -- Sí --> DA04_L["Cierra pedido en DB de forma definitiva"]
+        DA04_K -- No --> DA04_M["Auto-confirma tras ventana de 24 horas"]
+        
+        DA04_L --> DA04_End([Fin])
+        DA04_M --> DA04_End
+    end
+
+    DA_04 ~~~ DA_05
+
+    %% =================================================================
+    %% DA-05 (Módulo 7): Captura e Inferencia de Geolocalización Silenciosa por IP
+    %% =================================================================
+    subgraph DA_05 ["DA-05: Captura e Inferencia de Geolocalización Silenciosa por IP (UC44_AUTO, UC47, UC45_IP, UC48)"]
+        direction TB
+        DA05_Start([Inicio]) --> DA05_A["Cliente inicia navegación"]
+        DA05_A --> DA05_B["Sistema extrae request.ip y User-Agent de los headers HTTP de forma silenciosa"]
+        
+        DA05_B --> DA05_C{"¿Se resolvieron coordenadas\nmediante API de Geolocalización\npor IP?"}
+        
+        DA05_C -- Sí --> DA05_D["Asigna coordenadas geográficas calculadas y marca fuente como 'GEOLOCALIZACION_IP'"]
+        DA05_C -- No --> DA05_E["Ejecuta consulta de proximidad y asigna coordenadas de la Sucursal más cercana como contingencia, marcando fuente como 'DEFAULT_SUCURSAL'"]
+        
+        DA05_D --> DA05_F["El sistema unifica la carga útil"]
+        DA05_E --> DA05_F
+        
+        DA05_F --> DA05_G["Valida el JWT del cliente"]
+        DA05_G --> DA05_H["Prisma ejecuta un Create insertando el registro en la tabla Conexion"]
+        DA05_H --> DA05_I["Datos listos para módulo de IA"]
+        
+        DA05_I --> DA05_End([Fin])
+    end
+
+    DA_05 ~~~ DA_06
+
+    %% =================================================================
+    %% DA-06 (Módulo 8): Pipeline de Inferencia Asíncrona del Agente Globy IA y Renderizado PDF
+    %% =================================================================
+    subgraph DA_06 ["DA-06: Pipeline de Inferencia Asíncrona del Agente Globy IA y Renderizado PDF (UC50 al UC56)"]
+        direction TB
+        DA06_Start([Inicio]) --> DA06_A["Admin/Gerente solicita análisis en React (UC50)"]
+        DA06_A --> DA06_B["Middleware valida JWT y roles habilitados (admin/gerente)"]
+        
+        DA06_B --> DA06_C{"¿Tipo de análisis?"}
+        
+        DA06_C -- Patrones de Venta --> DA06_D["Consulta Pedidos/Productos"]
+        DA06_C -- Zonas de Demanda --> DA06_E["Consulta Conexiones/Competidores"]
+        DA06_C -- Comportamiento --> DA06_F["Consulta Habitualidad de Clientes"]
+        
+        DA06_D --> DA06_G["Serializa a JSON estructurado"]
+        DA06_E --> DA06_G
+        DA06_F --> DA06_G
+        
+        DA06_G --> DA06_H["Construye prompt enriquecido"]
+        DA06_H --> DA06_I["Envía petición asíncrona al Agente Globy IA"]
+        
+        DA06_I --> DA06_J{"¿IA respondió\ncon éxito?"}
+        
+        DA06_J -- No --> DA06_K["Registra en logs y retorna 500"]
+        DA06_K --> DA06_End([Fin])
+        
+        DA06_J -- Sí --> DA06_L["Prisma guarda dataJson e insightIA en la tabla InformeAnalitico (UC56)"]
+        DA06_L --> DA06_M["Backend invoca generador de PDF"]
+        DA06_M --> DA06_N["Compone el documento estructurado"]
+        DA06_N --> DA06_O["Adjunta en la respuesta HTTP 200"]
+        DA06_O --> DA06_P["Frontend habilita el botón de descarga en la UI"]
+        
+        DA06_P --> DA06_End
+    end

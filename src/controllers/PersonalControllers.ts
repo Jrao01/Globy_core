@@ -1,79 +1,162 @@
 import type { Request, Response, RequestHandler } from "express";
-import prisma from "../config/prisma.js";
-import type { Personal, PersonalCreateInput, PersonalUpdateInput } from "../generated/models.js";
+import type { AuthRequest, IdParams } from "../types/index.js";
+import { Prisma } from "../generated/index.js";
+import {
+  registerPersonal,
+  loginPersonal,
+  updatePersonal,
+  getPersonalById,
+  getAllPersonal,
+  setPersonalStatus,
+} from "../services/PersonalService.js";
 
-export const PersonalRegister: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-    const data = req.body as PersonalCreateInput;
-    try {
-        const newUser = await prisma.personal.create({ data });
-        const { password: _, ...safeUser } = newUser;
-        res.status(201).json({ message: "Personal registrado correctamente", data: safeUser });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error al registrar personal" });
+export const PersonalRegister: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    // Only admin can register new personal
+    const requester = req.user;
+    if (!requester || requester.rol !== "admin") {
+      res.status(403).json({ message: "No tienes permisos para crear personal" });
+      return;
     }
+
+    const data = req.body as Prisma.PersonalCreateInput;
+    const required = ["nombre", "apellido", "cedula", "correo", "password"];
+    for (const f of required) {
+      if (!Object.prototype.hasOwnProperty.call(data, f) || (data as any)[f] === undefined) {
+        res.status(400).json({ message: `${f} es requerido` });
+        return;
+      }
+    }
+
+    // validate role if provided
+    const allowedRoles = ["admin", "gerente", "trabajador", "delivery"];
+    if ((data as any).rol && !allowedRoles.includes((data as any).rol)) {
+      res.status(400).json({ message: "rol inválido" });
+      return;
+    }
+
+    if ((data as any).sucursalId) {
+      const s = parseInt((data as any).sucursalId as any);
+      if (isNaN(s)) {
+        res.status(400).json({ message: "sucursalId inválido" });
+        return;
+      }
+      (data as any).sucursalId = s;
+    }
+
+    const newUser = await registerPersonal(data);
+    res.status(201).json({ message: "Personal registrado correctamente", data: newUser });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al registrar personal" });
+  }
 };
 
-export const PersonalLogin: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-    const { correo, password } = req.body;
-    try {
-        const user = await prisma.personal.findUnique({ 
-            where: { correo },
-            include: { sucursal: true } // Traemos los datos de su sede
-        });
-
-        if (!user || user.password !== password) {
-            res.status(401).json({ message: "Credenciales inválidas" });
-            return;
-        }
-
-        const { password: _, ...safeUser } = user;
-        res.json({ message: "Login exitoso", data: safeUser });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error interno del servidor" });
+export const LogInPersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  const { correo, password } = req.body;
+  try {
+    const result = await loginPersonal(correo, password);
+    res.json({ message: "Login exitoso", data: result.user, token: result.token });
+  } catch (error: any) {
+    if (error.message === "INVALID_CREDENTIALS") {
+      res.status(401).json({ message: "Credenciales inválidas" });
+      return;
     }
+    console.error(error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
 };
 
 export const UpdatePersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-    const { id, ...updateData } = req.body as { id: number } & PersonalUpdateInput;
-
-    if (!id) {
-        res.status(400).json({ message: "ID del personal es requerido" });
-        return;
-    }
-
-    try {
-        const updated = await prisma.personal.update({
-            where: { id },
-            data: updateData
-        });
-
-        const { password: _, ...safeUser } = updated;
-        res.json({ message: "Personal actualizado correctamente", data: safeUser });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error al actualizar personal" });
-    }
+  const { id, ...updateData } = req.body as { id: number } & Prisma.PersonalUpdateInput;
+  if (!id) {
+    res.status(400).json({ message: "ID del personal es requerido" });
+    return;
+  }
+  try {
+    const updated = await updatePersonal(id, updateData);
+    res.json({ message: "Personal actualizado correctamente", data: updated });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al actualizar personal" });
+  }
 };
 
-export const GetPersonalById: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-    const { id } = req.body;
-    try {
-        const user = await prisma.personal.findUnique({ 
-            where: { id },
-            include: { sucursal: true }
-        });
-
-        if (!user) {
-            res.status(404).json({ message: "Personal no encontrado" });
-            return;
-        }
-
-        const { password: _, ...safeUser } = user;
-        res.json({ data: safeUser });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Error al obtener datos" });
+export const GetPersonalById: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  // Support fetching by body.id or params.id
+  const idString = req.params.id;
+  const bodyId = req.body.id;
+  let id: number | undefined;
+  if (idString) {
+    id = Number(idString);
+  } else if (typeof bodyId === "number") {
+    id = bodyId;
+  } else if (typeof bodyId === "string") {
+    id = Number(bodyId);
+  }
+  if (!id || Number.isNaN(id)) {
+    res.status(400).json({ message: "ID es requerido" });
+    return;
+  }
+  try {
+    const user = await getPersonalById(id);
+    res.json({ data: user });
+  } catch (error: any) {
+    if (error.message === "USER_NOT_FOUND") {
+      res.status(404).json({ message: "Personal no encontrado" });
+      return;
     }
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener datos" });
+  }
+};
+
+export const GetAllPersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const personnel = await getAllPersonal();
+    res.json({ data: personnel });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener la lista de personal" });
+  }
+};
+
+export const EnablePersonal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ message: "ID es requerido" });
+      return;
+    }
+    const personalId = Number(id);
+    if (Number.isNaN(personalId)) {
+      res.status(400).json({ message: "ID inválido" });
+      return;
+    }
+    const updated = await setPersonalStatus(personalId, true);
+    res.json({ message: "Personal habilitado", data: updated });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: "Error al habilitar personal" });
+  }
+};
+
+export const DisablePersonal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ message: "ID es requerido" });
+      return;
+    }
+    const personalId = Number(id);
+    if (Number.isNaN(personalId)) {
+      res.status(400).json({ message: "ID inválido" });
+      return;
+    }
+    const updated = await setPersonalStatus(personalId, false);
+    res.json({ message: "Personal deshabilitado", data: updated });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: "Error al deshabilitar personal" });
+  }
 };
