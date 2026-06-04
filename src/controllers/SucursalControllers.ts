@@ -1,10 +1,12 @@
 import type { Request, Response, RequestHandler } from "express";
+import type { IdParams } from "../types/index.js";
 import { Prisma } from "../generated/index.js";
 import {
   createSucursal,
   getAllSucursales,
   updateSucursal,
   getSucursalById,
+  setSucursalStatus,
 } from "../services/SucursalService.js";
 
 export const CreateSucursal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
@@ -55,5 +57,45 @@ export const GetSucursalById: RequestHandler = async (req: Request, res: Respons
     }
     console.error(error);
     res.status(500).json({ message: "Error al obtener sucursal" });
+  }
+};
+
+export const EnableSucursal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ message: "ID es requerido" });
+      return;
+    }
+    const sucursalId = Number(id);
+    if (Number.isNaN(sucursalId)) {
+      res.status(400).json({ message: "ID inválido" });
+      return;
+    }
+    const updated = await setSucursalStatus(sucursalId, true);
+    res.json({ message: "Sucursal habilitada", data: updated });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: "Error al habilitar sucursal" });
+  }
+};
+
+export const DisableSucursal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ message: "ID es requerido" });
+      return;
+    }
+    const sucursalId = Number(id);
+    if (Number.isNaN(sucursalId)) {
+      res.status(400).json({ message: "ID inválido" });
+      return;
+    }
+    const updated = await setSucursalStatus(sucursalId, false);
+    res.json({ message: "Sucursal deshabilitada", data: updated });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: "Error al deshabilitar sucursal" });
   }
 };

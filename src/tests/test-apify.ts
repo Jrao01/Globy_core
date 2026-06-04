@@ -1,4 +1,5 @@
 // test-apify.ts
+import "dotenv/config";
 import { ApifyService } from '../services/CompetitorsService.js';
 import type { CompetidoresSearch } from '../types/index.js';
 async function main() {

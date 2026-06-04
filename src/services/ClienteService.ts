@@ -14,6 +14,7 @@ export const registerCliente = async (
       apellido: data.apellido,
       cedula: data.cedula,
       correo: data.correo,
+      telefono: data.telefono ?? null,
       direccion: data.direccion ?? null,
       password: data.password,
     },
@@ -51,6 +52,15 @@ export const getClienteById = async (
   return safeUser;
 };
 
+export const findClienteByCedula = async (
+  cedula: string
+): Promise<Omit<Cliente, "password"> | null> => {
+  const user = await prisma.cliente.findUnique({ where: { cedula } });
+  if (!user) return null;
+  const { password: _, ...safeUser } = user;
+  return safeUser;
+};
+
 export const updateCliente = async (
   id: number,
   updateData: Prisma.ClienteUpdateInput
@@ -62,8 +72,16 @@ export const updateCliente = async (
       ...(updateData.direccion !== undefined && {
         direccion: updateData.direccion ?? null,
       }),
+      ...(updateData.telefono !== undefined && {
+        telefono: updateData.telefono ?? null,
+      }),
     },
   });
   const { password: _, ...safeUser } = updated;
   return safeUser;
+};
+
+export const getAllClientes = async (): Promise<Omit<Cliente, "password">[]> => {
+  const users = await prisma.cliente.findMany({ orderBy: { createdAt: "desc" } });
+  return users.map(({ password: _, ...safe }) => safe);
 };

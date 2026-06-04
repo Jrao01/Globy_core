@@ -8,7 +8,7 @@ import {
   getProductoById,
   getCategorias,
   getInventoryBySucursal,
-  updateStock,
+  updateInventory,
   setProductoStatus,
 } from "../services/ProductoService.js";
 
@@ -118,17 +118,23 @@ export const GetInventoryBySucursal: RequestHandler<SucursalParams> = async (req
 };
 
 export const UpdateStock: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-  const { sucursalId, productoId, stock } = req.body;
+  const { sucursalId, productoId, stockActual, stockMinimo, cantVentas, estadoStock, status } = req.body;
   try {
-    const inventory = await updateStock(
+    const inventory = await updateInventory(
       parseInt(sucursalId),
       parseInt(productoId),
-      parseInt(stock)
+      {
+        ...(stockActual !== undefined && { stockActual: parseInt(stockActual) }),
+        ...(stockMinimo !== undefined && { stockMinimo: parseInt(stockMinimo) }),
+        ...(cantVentas !== undefined && { cantVentas: parseInt(cantVentas) }),
+        ...(estadoStock !== undefined && { estadoStock }),
+        ...(status !== undefined && { status }),
+      }
     );
-    res.json({ message: "Stock actualizado", data: inventory });
+    res.json({ message: "Inventario actualizado", data: inventory });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Error al actualizar stock" });
+    res.status(500).json({ message: "Error al actualizar inventario" });
   }
 };
 

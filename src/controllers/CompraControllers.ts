@@ -3,6 +3,7 @@ import {
   createPedido,
   getAvailablePedidos,
   getPedidosByRepartidor,
+  getPedidosByCliente,
   assignPedidoToRepartidor,
   updatePedidoStatus,
   getPedidoById,
@@ -142,5 +143,35 @@ export const GetPedido: RequestHandler<IdParams> = async (req: Request<IdParams>
     }
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedido" });
+  }
+};
+
+export const GetPedidosByClienteController: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const clienteId = parseInt(req.params.clienteId as string);
+    if (isNaN(clienteId)) {
+      res.status(400).json({ message: "clienteId inválido" });
+      return;
+    }
+
+    const requester = req.user;
+    const { fechaInicio, fechaFin, categoriaId, precioMin, precioMax } = req.query;
+
+    // Gerente can only see pedidos from their sucursal
+    const filters: any = {};
+    if (requester?.rol === "gerente" && requester?.sucursalId) {
+      filters.sucursalId = requester.sucursalId;
+    }
+    if (fechaInicio) filters.fechaInicio = fechaInicio;
+    if (fechaFin) filters.fechaFin = fechaFin;
+    if (categoriaId) filters.categoriaId = parseInt(categoriaId as string);
+    if (precioMin) filters.precioMin = parseFloat(precioMin as string);
+    if (precioMax) filters.precioMax = parseFloat(precioMax as string);
+
+    const pedidos = await getPedidosByCliente(clienteId, filters);
+    res.json({ data: pedidos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener pedidos del cliente" });
   }
 };

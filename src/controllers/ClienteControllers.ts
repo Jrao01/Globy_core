@@ -4,6 +4,8 @@ import {
   registerCliente,
   loginCliente,
   getClienteById,
+  findClienteByCedula,
+  getAllClientes,
   updateCliente,
 } from "../services/ClienteService.js";
 
@@ -68,5 +70,34 @@ export const UpdateCliente: RequestHandler = async (req: Request, res: Response)
     }
     console.error(error);
     res.status(500).json({ message: "Error al actualizar los datos" });
+  }
+};
+
+export const GetAllClientes: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const clientes = await getAllClientes();
+    res.json({ data: clientes });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener clientes" });
+  }
+};
+
+export const SearchClienteByCedula: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  const cedula = req.params.cedula as string;
+  if (!cedula) {
+    res.status(400).json({ message: "Cédula es requerida" });
+    return;
+  }
+  try {
+    const user = await findClienteByCedula(cedula);
+    if (!user) {
+      res.status(404).json({ message: "Cliente no encontrado" });
+      return;
+    }
+    res.json({ data: user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al buscar cliente" });
   }
 };

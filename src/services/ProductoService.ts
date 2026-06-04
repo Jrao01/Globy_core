@@ -43,19 +43,41 @@ export const getInventoryBySucursal = async (sucursalId: number) => {
   });
 };
 
-export const updateStock = async (
+function calcEstadoStock(stockActual: number, stockMinimo: number): string {
+  if (stockActual <= 0) return "agotado";
+  if (stockActual <= stockMinimo) return "bajo";
+  return "optimo";
+}
+
+export const updateInventory = async (
   sucursalId: number,
   productoId: number,
-  stock: number
+  data: { stockActual?: number; stockMinimo?: number; cantVentas?: number; estadoStock?: string; status?: string }
 ) => {
+  const existing = await prisma.inventario.findUnique({
+    where: { sucursalId_productoId: { sucursalId, productoId } },
+  });
+  const finalStockActual = data.stockActual ?? existing?.stockActual ?? 0;
+  const finalStockMinimo = data.stockMinimo ?? existing?.stockMinimo ?? 5;
+  const finalEstadoStock = data.estadoStock || calcEstadoStock(finalStockActual, finalStockMinimo);
+
   return await prisma.inventario.upsert({
     where: { sucursalId_productoId: { sucursalId, productoId } },
-    update: { stockActual: stock },
+    update: {
+      ...(data.stockActual !== undefined && { stockActual: data.stockActual }),
+      ...(data.stockMinimo !== undefined && { stockMinimo: data.stockMinimo }),
+      ...(data.cantVentas !== undefined && { cantVentas: data.cantVentas }),
+      ...(data.status !== undefined && { status: data.status }),
+      estadoStock: finalEstadoStock,
+    },
     create: {
       sucursalId,
       productoId,
-      stockActual: stock,
-      stockMinimo: 5,
+      stockActual: data.stockActual ?? 0,
+      stockMinimo: data.stockMinimo ?? 5,
+      cantVentas: data.cantVentas ?? 0,
+      estadoStock: finalEstadoStock,
+      status: data.status ?? "disponible",
     },
   });
 };

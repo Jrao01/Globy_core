@@ -12,9 +12,8 @@ import {
 
 export const PersonalRegister: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Only admin can register new personal
     const requester = req.user;
-    if (!requester || requester.rol !== "admin") {
+    if (!requester || (requester.rol !== "admin" && requester.rol !== "gerente")) {
       res.status(403).json({ message: "No tienes permisos para crear personal" });
       return;
     }
@@ -35,18 +34,33 @@ export const PersonalRegister: RequestHandler = async (req: AuthRequest, res: Re
       return;
     }
 
-    if ((data as any).sucursalId) {
-      const s = parseInt((data as any).sucursalId as any);
-      if (isNaN(s)) {
-        res.status(400).json({ message: "sucursalId inválido" });
+    // Gerente can only register trabajador/delivery and only for their own sucursal
+    if (requester.rol === "gerente") {
+      if ((data as any).rol === "admin" || (data as any).rol === "gerente") {
+        res.status(403).json({ message: "No puedes crear usuarios con rol admin o gerente" });
         return;
       }
-      (data as any).sucursalId = s;
+      (data as any).sucursalId = requester.sucursalId;
+    } else {
+      if ((data as any).sucursalId) {
+        const s = parseInt((data as any).sucursalId as any);
+        if (isNaN(s)) {
+          res.status(400).json({ message: "sucursalId inválido" });
+          return;
+        }
+        (data as any).sucursalId = s;
+      }
     }
 
     const newUser = await registerPersonal(data);
     res.status(201).json({ message: "Personal registrado correctamente", data: newUser });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      const fields = error?.meta?.target ?? error?.meta?.driverAdapterError?.cause?.fields ?? [];
+      const fieldName = Array.isArray(fields) ? fields[0] : "correo o cédula";
+      res.status(409).json({ message: `Ya existe un registro con ese ${fieldName}` });
+      return;
+    }
     console.error(error);
     res.status(500).json({ message: "Error al registrar personal" });
   }

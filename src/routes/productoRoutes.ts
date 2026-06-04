@@ -11,8 +11,18 @@ import {
     DisableProducto
 } from "../controllers/ProductoControllers.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
+import { upload } from "../middlewares/uploadMiddleware.js";
 
 const router = Router();
+
+router.post("/upload-image", verifyToken, upload.single("imagen"), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ message: "No se envió ninguna imagen" });
+    return;
+  }
+  const imageUrl = `uploads/${req.file.filename}`;
+  res.json({ message: "Imagen subida", data: { url: imageUrl } });
+});
 
 router.post("/create", verifyToken, CreateProducto);
 router.get("/all", verifyToken, GetAllProductos);

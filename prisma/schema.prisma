@@ -15,7 +15,7 @@ model EmpresaConfig {
   direccionFiscal String
   telefono        String?
   logoUrl         String?
-  moneda          String   @default("USD")
+  pais            String   @default("Venezuela")
   
   // Configuración SMTP para envío de correos automáticos
   smtpHost        String?
@@ -34,8 +34,9 @@ model Cliente {
   cedula       String       @unique
   correo       String       @unique
   password     String
+  telefono     String?
   direccion    String?
-  tipoCliente  String       @default("bronce") // Clasificación para análisis de comportamiento
+  tipoCliente  String       @default("bronce")
   conexiones   Conexion[]
   pedidos      Pedido[]
   createdAt    DateTime     @default(now())
@@ -89,7 +90,30 @@ model Competidor {
   cantReviews     Int      @default(0)
   ratingPromedio  Float?
   tipoNegocio     String?
+  categories      String?  // JSON array serializado
+  placeId         String?  @unique
+  website         String?
+  phone           String?
   ultimaVerif     DateTime @default(now())
+  busquedas       CompetidoresBusqueda[]
+}
+
+model BusquedaCompetidor {
+  id              Int                    @id @default(autoincrement())
+  categorias      String                 // JSON array de categorías buscadas
+  ciudades        String                 // JSON array de ciudades
+  maxPlaces       Int
+  createdAt       DateTime               @default(now())
+  competidores    CompetidoresBusqueda[]
+}
+
+model CompetidoresBusqueda {
+  busquedaId       Int
+  competidorId     Int
+  busqueda         BusquedaCompetidor @relation(fields: [busquedaId], references: [id], onDelete: Cascade)
+  competidor       Competidor         @relation(fields: [competidorId], references: [id], onDelete: Cascade)
+
+  @@id([busquedaId, competidorId])
 }
 
 // --- PRODUCTOS E INVENTARIO ---
@@ -107,6 +131,7 @@ model Producto {
   descripcion     String?
   precioBase      Float
   emailProveedor  String
+  imagen          String?
   categoriaId     Int
   categoria       Categoria         @relation(fields: [categoriaId], references: [id])
   inventarios     Inventario[]
@@ -117,14 +142,42 @@ model Inventario {
   id              Int       @id @default(autoincrement())
   sucursalId      Int
   productoId      Int
-  stockActual     Int
-  stockMinimo     Int
+  stockActual     Int       @default(0)
+  stockMinimo     Int       @default(5)
+  cantVentas      Int       @default(0)
+  estadoStock     String    @default("optimo")
+  status          String    @default("disponible")
   ultimaReposicion DateTime @updatedAt
 
   sucursal        Sucursal  @relation(fields: [sucursalId], references: [id])
   producto        Producto  @relation(fields: [productoId], references: [id])
 
   @@unique([sucursalId, productoId])
+}
+
+// --- GEOIP CACHE (geolocalización por IP) ---
+model GeoIP {
+  id         Int          @id @default(autoincrement())
+  ip         String       @unique
+  proveedor  String?
+  ciudad     String?
+  pais       String?
+  latitud    Float?
+  longitud   Float?
+  auditorias Auditoria[]
+  updatedAt  DateTime     @updatedAt
+}
+
+// --- AUDITORÍA DE ACCESOS (todos los usuarios) ---
+model Auditoria {
+  id         Int      @id @default(autoincrement())
+  ip         String
+  ruta       String
+  metodo     String
+  clienteId  Int?
+  geoIPId    Int?
+  geoIP      GeoIP?   @relation(fields: [geoIPId], references: [id])
+  createdAt  DateTime @default(now())
 }
 
 // --- RECOLECCIÓN DE DATOS (SENSORES) ---
@@ -161,6 +214,16 @@ model PedidoDetalle {
   precioUnit   Float
   pedido       Pedido   @relation(fields: [pedidoId], references: [id])
   producto     Producto @relation(fields: [productoId], references: [id])
+}
+
+// --- GESTIÓN ECONÓMICA ---
+model GestionEconomica {
+  id              Int      @id @default(autoincrement())
+  monedaPrincipal String   @default("USD")
+  bcvPrice        Float    @default(1)
+  autoUpdate      Boolean  @default(true)
+  updateFrequency String   @default("24H")
+  lastUpdate      DateTime @default(now())
 }
 
 // --- INTELIGENCIA ARTIFICIAL ---

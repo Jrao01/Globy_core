@@ -1,25 +1,24 @@
-// src/services/ApifyService.ts
 import { ApifyClient } from 'apify-client';
 import type { Competitor, CompetidoresSearch } from "../types/index.js";
 
 export class ApifyService {
     private client = new ApifyClient({
-        token: process.env.APIFY_TOKEN, // Usa variables de entorno en producción
+        token: process.env.APIFY_TOKEN,
     });
 
-    async buscar(Filtros: CompetidoresSearch): Promise<Competitor[]> {
-        console.log(`🔍 Iniciando búsqueda en: ${Filtros.city}...`);
+    async buscar(Filtros: CompetidoresSearch, pais?: string): Promise<Competitor[]> {
+        const suffix = pais ? `, ${pais}` : "";
+        const ciudades = Filtros.city.map((c) => `${c}${suffix}`);
+        console.log(`🔍 Iniciando búsqueda en: ${ciudades.join(", ")}...`);
         const input = {
             searchStringsArray: Filtros.categories,
-            city: Filtros.city,
+            locationQuery: ciudades.join(", "),
             maxCrawledPlacesPerSearch: Filtros.maxCrawledPlacesPerSearch,
-            
         }
-        const run = await this.client.actor("apify/google-maps-scraper").call(input);
+        const run = await this.client.actor("compass/crawler-google-places").call(input);
 
         const { items } = await this.client.dataset(run.defaultDatasetId).listItems();
 
-        // Mapeamos la salida de Apify a nuestra interfaz limpia
         return items.map((item: any) => ({
             id: item.id,
             searchPageUrl: item.searchPageUrl,
@@ -42,7 +41,9 @@ export class ApifyService {
             fid: item.fid,
             totalScore: item.totalScore,
             reviewsCount: item.reviewsCount,
+            openingHours: item.openingHours,
+            orderBy: item.orderBy,
+            gasPrices: item.gasPrices,
         }));
     }
 }
-

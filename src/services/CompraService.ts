@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { Prisma } from "../generated/index.js";
 
 export const createPedido = async (
   clienteId: number,
@@ -69,4 +70,44 @@ export const getPedidoById = async (id: number) => {
   });
   if (!pedido) throw new Error("NOT_FOUND");
   return pedido;
+};
+
+export const getPedidosByCliente = async (
+  clienteId: number,
+  filters: {
+    fechaInicio?: string;
+    fechaFin?: string;
+    categoriaId?: number;
+    precioMin?: number;
+    precioMax?: number;
+    sucursalId?: number;
+  }
+) => {
+  const where: Prisma.PedidoWhereInput = { clienteId };
+
+  if (filters.sucursalId) where.sucursalId = filters.sucursalId;
+  if (filters.fechaInicio || filters.fechaFin) {
+    where.fecha = {};
+    if (filters.fechaInicio) where.fecha.gte = new Date(filters.fechaInicio);
+    if (filters.fechaFin) where.fecha.lte = new Date(filters.fechaFin);
+  }
+  if (filters.precioMin !== undefined || filters.precioMax !== undefined) {
+    where.total = {};
+    if (filters.precioMin !== undefined) where.total.gte = filters.precioMin;
+    if (filters.precioMax !== undefined) where.total.lte = filters.precioMax;
+  }
+  if (filters.categoriaId) {
+    where.detalles = {
+      some: { producto: { categoriaId: filters.categoriaId } },
+    };
+  }
+
+  return prisma.pedido.findMany({
+    where,
+    include: {
+      sucursal: true,
+      detalles: { include: { producto: { include: { categoria: true } } } },
+    },
+    orderBy: { fecha: "desc" },
+  });
 };

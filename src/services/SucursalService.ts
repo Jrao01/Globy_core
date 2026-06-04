@@ -24,6 +24,10 @@ export const updateSucursal = async (
   return await prisma.sucursal.update({ where: { id }, data: updateData });
 };
 
+export const setSucursalStatus = async (id: number, status: boolean) => {
+  return await prisma.sucursal.update({ where: { id }, data: { status } });
+};
+
 export const getSucursalById = async (id: number) => {
   const sucursal = await prisma.sucursal.findUnique({
     where: { id },
