@@ -146,6 +146,26 @@ export const GetPedido: RequestHandler<IdParams> = async (req: Request<IdParams>
   }
 };
 
+export const GetClienteMisPedidos: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ message: "No autorizado" });
+      return;
+    }
+    const clienteId = typeof user.id === "string" ? Number(user.id) : user.id;
+    if (Number.isNaN(clienteId)) {
+      res.status(400).json({ message: "ID de cliente inválido" });
+      return;
+    }
+    const pedidos = await getPedidosByCliente(clienteId, {});
+    res.json({ data: pedidos });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener pedidos del cliente" });
+  }
+};
+
 export const GetPedidosByClienteController: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const clienteId = parseInt(req.params.clienteId as string);

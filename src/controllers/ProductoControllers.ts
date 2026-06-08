@@ -1,6 +1,7 @@
 import type { Request, Response, RequestHandler } from "express";
 import type { IdParams, SucursalParams } from "../types/index.js";
 import { Prisma } from "../generated/index.js";
+import prisma from "../config/prisma.js";
 import {
   createProducto,
   getAllProductos,
@@ -84,6 +85,39 @@ export const GetProductoById: RequestHandler = async (req: Request, res: Respons
       res.status(404).json({ message: "Producto no encontrado" });
       return;
     }
+    console.error(error);
+    res.status(500).json({ message: "Error al obtener producto" });
+  }
+};
+
+export const GetProductoDetail: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+  const { id } = req.params;
+  try {
+    const numericId = Number(id);
+    if (Number.isNaN(numericId)) {
+      res.status(400).json({ message: "ID de producto inválido" });
+      return;
+    }
+    const producto = await prisma.producto.findUnique({
+      where: { id: numericId },
+      include: { categoria: true, inventarios: { include: { sucursal: true } } },
+    });
+    if (!producto) {
+      res.status(404).json({ message: "Producto no encontrado" });
+      return;
+    }
+    const stockTotal = producto.inventarios.reduce((sum, i) => sum + i.stockActual, 0);
+    const relacionados = await prisma.producto.findMany({
+      where: { categoriaId: producto.categoriaId, id: { not: numericId } },
+      take: 6,
+      include: { categoria: true, inventarios: true },
+    });
+    const relacionadosMapped = relacionados.map((r) => ({
+      ...r,
+      stockTotal: r.inventarios.reduce((sum, i) => sum + i.stockActual, 0),
+    }));
+    res.json({ data: { ...producto, stockTotal, relacionados: relacionadosMapped } });
+  } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener producto" });
   }

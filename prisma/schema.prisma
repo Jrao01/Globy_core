@@ -56,6 +56,7 @@ model Personal {
   cedula       String       @unique
   correo       String       @unique
   password     String
+  telefono     String?
   rol          PersonalRol  @default(trabajador)
   status       Boolean      @default(true)
   sucursalId   Int?
@@ -105,6 +106,8 @@ model BusquedaCompetidor {
   maxPlaces       Int
   createdAt       DateTime               @default(now())
   competidores    CompetidoresBusqueda[]
+
+  @@unique([categorias, ciudades, maxPlaces])
 }
 
 model CompetidoresBusqueda {

@@ -22,6 +22,21 @@ async function main() {
     update: {},
   });
   console.log("Admin creado/verificado:", admin.correo);
+
+  const worker = await prisma.personal.upsert({
+    where: { correo: "trabajador@gmail.com" },
+    create: {
+      nombre: "Trabajador",
+      apellido: "Demo",
+      cedula: "V-00000002",
+      correo: "trabajador@gmail.com",
+      password: "worker123",
+      rol: "trabajador",
+      status: true,
+    },
+    update: {},
+  });
+  console.log("Trabajador creado/verificado:", worker.correo);
 }
 
 main()

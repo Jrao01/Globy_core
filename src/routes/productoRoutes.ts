@@ -8,7 +8,8 @@ import {
     GetInventoryBySucursal,
     UpdateStock,
     EnableProducto,
-    DisableProducto
+    DisableProducto,
+    GetProductoDetail
 } from "../controllers/ProductoControllers.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { upload } from "../middlewares/uploadMiddleware.js";
@@ -26,6 +27,7 @@ router.post("/upload-image", verifyToken, upload.single("imagen"), (req, res) =>
 
 router.post("/create", verifyToken, CreateProducto);
 router.get("/all", verifyToken, GetAllProductos);
+router.get("/detail/:id", verifyToken, GetProductoDetail);
 router.post("/data", verifyToken, GetProductoById);
 router.put("/update", verifyToken, UpdateProducto);
 router.patch<{ id: string }>("/:id/enable", verifyToken, EnableProducto);

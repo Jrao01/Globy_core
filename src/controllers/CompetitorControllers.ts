@@ -17,13 +17,24 @@ export const SearchCompetitors: RequestHandler = async (req: Request, res: Respo
     const pais = cfg?.pais || "Venezuela";
     const results: Competitor[] = await apifyService.buscar(filters, pais);
 
-    const busqueda = await prisma.busquedaCompetidor.create({
-      data: {
+    const busqueda = await prisma.busquedaCompetidor.upsert({
+      where: {
+        categorias_ciudades_maxPlaces: {
+          categorias: JSON.stringify(filters.categories),
+          ciudades: JSON.stringify(filters.city),
+          maxPlaces: filters.maxCrawledPlacesPerSearch,
+        },
+      },
+      update: { createdAt: new Date() },
+      create: {
         categorias: JSON.stringify(filters.categories),
         ciudades: JSON.stringify(filters.city),
         maxPlaces: filters.maxCrawledPlacesPerSearch,
       },
     });
+
+    // Remove old links so they get replaced with fresh results
+    await prisma.competidoresBusqueda.deleteMany({ where: { busquedaId: busqueda.id } });
 
     for (const item of results) {
       if (!item.placeId) continue;

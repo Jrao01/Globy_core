@@ -12,6 +12,11 @@ export const getAllSucursales = async () => {
   return await prisma.sucursal.findMany({
     include: {
       _count: { select: { personal: true, inventarios: true } },
+      personal: {
+        where: { rol: "gerente", status: true },
+        select: { id: true, nombre: true, apellido: true, correo: true, telefono: true, cedula: true, rol: true },
+        take: 1,
+      },
     },
   });
 };

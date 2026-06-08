@@ -43,16 +43,28 @@ export const GetTiendaCategorias: RequestHandler = async (_req: Request, res: Re
 export const GetTiendaProductoById: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   try {
+    const numericId = Number(id);
     const producto = await prisma.producto.findUnique({
-      where: { id: Number(id) },
-      include: { categoria: true, inventarios: true },
+      where: { id: numericId },
+      include: { categoria: true, inventarios: { include: { sucursal: true } } },
     });
     if (!producto) {
       res.status(404).json({ message: "Producto no encontrado" });
       return;
     }
     const stockTotal = producto.inventarios.reduce((sum, i) => sum + i.stockActual, 0);
-    res.json({ data: { ...producto, stockTotal } });
+
+    const relacionados = await prisma.producto.findMany({
+      where: { categoriaId: producto.categoriaId, id: { not: numericId } },
+      take: 6,
+      include: { categoria: true, inventarios: true },
+    });
+    const relacionadosMapped = relacionados.map((r) => ({
+      ...r,
+      stockTotal: r.inventarios.reduce((sum, i) => sum + i.stockActual, 0),
+    }));
+
+    res.json({ data: { ...producto, stockTotal, relacionados: relacionadosMapped } });
   } catch (error) {
     res.status(500).json({ message: "Error al obtener producto" });
   }
