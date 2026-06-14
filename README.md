@@ -1,89 +1,129 @@
-# 🌍 Globy Backend - Engine de Inteligencia de Negocios
+# 🌍 Globy Backend - Motor Analítico de Expansión Comercial
 
-Globy es el núcleo de procesamiento y análisis de una plataforma de expansión comercial inteligente. Este repositorio contiene la lógica de servidor, la gestión de base de datos relacional y el motor de integración con modelos de lenguaje (LLM) para transformar datos demográficos y de consumo en decisiones estratégicas de negocio.
+**Globy** es el backend de una plataforma de gestión comercial inteligente diseñada para ayudar a redes de tiendas a capturar, analizar y automatizar decisiones estratégicas. Combina inventario multi-sucursal, gestión de pedidos, auditoría de acceso y geolocalización con capacidades de análisis y generación de informes para que la empresa pueda tomar acciones basadas en datos.
+
+## ¿Qué es Globy?
+Globy es un sistema pensado para negocios que necesitan controlar su operación desde varias sedes físicas, gestionar productos y pedidos, y enriquecer información de mercado con datos de competencia y geolocalización. El backend centraliza:
+* Clientes, personal y sucursales
+* Productos, inventario y categorías
+* Pedidos y detalles de venta
+* Registro de actividad y ubicación de clientes
+* Búsqueda de competidores y métricas de mercado
+* Generación de informes analíticos con IA
 
 ## 🛠️ Stack Tecnológico
-*   **Runtime**: Node.js (v18+)
-*   **Framework**: Express.js (v5+)
-*   **ORM**: Prisma
-*   **Base de Datos**: PostgreSQL (Producción) / SQLite (Desarrollo local)
-*   **Lenguaje**: TypeScript
-*   **IA**: Integración de Agentes para procesamiento de reportes analíticos.
-*   **Notificaciones**: Servicio SMTP vía Nodemailer para automatización de suministros.
+* **Runtime**: Node.js (v18+)
+* **Framework**: Express.js (v5+)
+* **ORM**: Prisma (v7)
+* **Base de Datos**: SQLite (desarrollo local, `DATABASE_URL=file:./prisma/dev.db`)
+* **Lenguaje**: TypeScript
+* **IA**: OpenAI / agentes de análisis para generación de insights
+* **Notificaciones**: Nodemailer + SMTP
+* **Carga de archivos**: Multer
 
-## 🏗️ Arquitectura de Datos
-El backend de Globy está estructurado bajo un modelo relacional robusto que permite el escalado de datos en tres vertientes:
+## 🏗️ Modelo de Datos Actual
+Globy utiliza un modelo relacional con las siguientes capacidades clave:
+1. **Inventario multi-sucursal**: cada `Producto` puede existir en múltiples `Sucursal` a través de `Inventario`, lo que permite controlar stock, ventas y estado por ubicación.
+2. **Auditoría y geolocalización**: las tablas `Auditoria`, `GeoIP` y `Conexion` registran accesos, IP y coordenadas, para analizar el comportamiento geográfico de clientes y tráfico.
+3. **Análisis de mercado**: `InformeAnalitico` guarda resultados de análisis de ventas, demanda por zona y competidores, almacenando datos estructurados en JSON junto a insights generados por IA.
+4. **Gestión económica**: `GestionEconomica` centraliza la lógica de tasas, actualización de precios y datos de BCV.
 
-1. **Gestión de Inventario Multi-Sucursal**: Implementa una lógica donde la entidad Producto es independiente de las existencias físicas. La tabla Inventario actúa como puente, permitiendo que cada Sucursal gestione su propio catálogo, stock actual y umbrales mínimos de reposición de forma autónoma.
-2. **Sensor de Geolocalización (Data Harvesting)**: El sistema expone endpoints diseñados para capturar la huella geográfica de los clientes (IP, Latitud, Longitud). Esta data se almacena en la tabla de Conexiones, proporcionando el insumo necesario para que el módulo de IA identifique clusters de demanda en zonas donde la empresa aún no tiene presencia física.
-3. **Engine de Análisis e IA**: Utiliza una tabla de InformesAnaliticos para la persistencia de resultados. El backend procesa los datos crudos de ventas, competencia y conexiones, y los entrega a un agente de IA que devuelve Data Estructurada (JSONB) e Insights Narrativos.
+## 🌐 API y Módulos Principales
+El servidor expone los siguientes módulos principales:
+* `/clientes` — gestión de clientes, registro, login, consulta y actualización
+* `/personal` — gestión de empleados, login, estado y asignación a sucursales
+* `/productos` — catálogo, detalles, inventario por sucursal, actualización de stock e imágenes
+* `/sucursales` — creación, listados, consulta y control de habilitación
+* `/categorias` — clasificación de productos
+* `/pedidos` — creación de pedidos, estado, asignación, detalles y pedidos por cliente
+* `/competitors` — búsqueda de competidores y consultas históricas
+* `/gestion-economica` — configuración de moneda, tasa y ajustes económicos
+* `/bcv` — sincronización y verificación de precio del BCV
+* `/tienda` — endpoints públicos para tienda: productos, categorías y detalle de producto
+* `/config` — configuración global de empresa y logo
 
----
+## 📌 Endpoints Relevantes
+### Clientes
+* `POST /clientes/register`
+* `POST /clientes/login`
+* `GET /clientes/search/:cedula`
+* `POST /clientes/data`
+* `PUT /clientes/update`
+* `GET /clientes/all`
 
-## 🛣️ Estructura de Rutas (API)
-La API está organizada en módulos. Todas las rutas cuelgan del prefijo definido en el servidor principal:
+### Personal
+* `POST /personal/register`
+* `POST /personal/login`
+* `GET /personal/all`
+* `PUT /personal/update`
+* `POST /personal/data`
+* `GET /personal/:id`
+* `PATCH /personal/:id/enable`
+* `PATCH /personal/:id/disable`
 
-*   **Clientes**: `/clientes` (Gestión de usuarios finales)
-*   **Personal**: `/personal` (Gestión de empleados y administración)
-*   **Productos**: `/productos` (Catálogo global de artículos)
-*   **Sucursales**: `/sucursales` (Gestión de sedes físicas)
+### Productos
+* `POST /productos/upload-image`
+* `POST /productos/create`
+* `GET /productos/all`
+* `GET /productos/detail/:id`
+* `POST /productos/data`
+* `PUT /productos/update`
+* `PATCH /productos/:id/enable`
+* `PATCH /productos/:id/disable`
+* `GET /productos/inventory/:sucursalId`
+* `GET /productos/categorias`
+* `POST /productos/inventory/update`
 
----
+### Pedidos
+* `POST /pedidos/create`
+* `GET /pedidos/available`
+* `GET /pedidos/mine`
+* `GET /pedidos/mis-pedidos`
+* `GET /pedidos/cliente/:clienteId`
+* `POST /pedidos/:id/assign`
+* `PUT /pedidos/:id/status`
+* `GET /pedidos/:id`
+* `GET /pedidos/:pedidoId/detalles`
+* `POST /pedidos/:pedidoId/detalles`
 
-## ⚙️ Documentación de Controladores
+### Tienda pública
+* `GET /tienda/productos`
+* `GET /tienda/categorias`
+* `GET /tienda/producto/:id`
 
-Todos los controladores esperan datos en el cuerpo de la petición (`req.body`) y devuelven respuestas en formato JSON.
+## 🚀 Instalación y Arranque
+1. Clonar el repositorio:
+```bash
+git clone https://github.com/tu-usuario/globy-backend.git
+```
+2. Instalar dependencias:
+```bash
+npm install
+```
+3. Configurar variables de entorno en `.env`:
+```env
+DATABASE_URL="file:./prisma/dev.db"
+```
+4. Generar Prisma Client:
+```bash
+npx prisma generate
+```
+5. Ejecutar migraciones:
+```bash
+npx prisma migrate dev --name init
+```
+6. Iniciar el servidor en modo desarrollo:
+```bash
+npm run dev
+```
 
-### 👥 Clientes (`ClienteCOntrollers.ts`)
-*   `POST /clientes/register`: Registro de nuevos clientes.
-*   `POST /clientes/login`: Autenticación de cliente.
-*   `POST /clientes/data`: Obtiene datos de un cliente específico (requiere `id`).
-*   `PUT /clientes/update`: Actualiza campos del cliente (requiere `id` y datos a modificar).
+## 🧭 Estado Actual del Proyecto
+Globy está en desarrollo activo. Actualmente cubre:
+* Registro y autenticación de clientes y personal
+* Gestión de productos, categorías e inventario
+* Administración de sucursales y pedidos
+* Auditoría de accesos y geolocalización
+* Integración de búsquedas de competidores y tienda pública
+* Soporte a análisis económico y BCV
 
-### 👨‍💼 Personal (`PersonalControllers.ts`)
-*   `POST /personal/register`: Registro de personal asociado a una `sucursalId`.
-*   `POST /personal/login`: Login de empleado. Devuelve datos del usuario y su sucursal.
-*   `POST /personal/data`: Obtiene detalle por ID.
-*   `PUT /personal/update`: Actualiza perfil o configuración de empleado.
-
-### 📦 Productos (`Producto.ts`)
-*   `POST /productos/create`: Añade un producto al catálogo.
-*   `GET /productos/all`: Lista completa de productos disponibles.
-*   `POST /productos/data`: Consulta detalle de un producto (requiere `id`).
-*   `PUT /productos/update`: Edita información o precios.
-
-### 🏢 Sucursales (`SucursalControllers.ts`)
-*   `POST /sucursales/create`: Registra una nueva sede física.
-*   `GET /sucursales/all`: Lista todas las sedes con conteo de personal y productos.
-*   `POST /sucursales/data`: Detalle de sede (incluye lista de personal asignado).
-*   `PUT /sucursales/update`: Edita ubicación o configuración de sucursal.
-
----
-
-## 🚀 Instalación y Desarrollo
-
-1.  **Clonar el repositorio**:
-    ```bash
-    git clone https://github.com/tu-usuario/globy-backend.git
-    ```
-2.  **Instalar dependencias**:
-    ```bash
-    npm install
-    ```
-3.  **Variables de Entorno**: Configura tu archivo `.env` con la `DATABASE_URL`. (Por defecto usa SQLite para desarrollo).
-4.  **Generar Cliente Prisma**:
-    ```bash
-    npx prisma generate
-    ```
-5.  **Despliegue de Base de Datos**:
-    ```bash
-    npx prisma migrate dev --name init
-    ```
-6.  **Iniciar Servidor**:
-    ```bash
-    npm run dev
-    ```
-
----
-**Estatus del Proyecto**: En desarrollo activo - Módulo de Inventario y Sucursales (Fase 1).  
-**Institución**: UNERG - Ingeniería en Informática.
+**Nota**: La base de datos actual usa SQLite en desarrollo, con `DATABASE_URL` apuntando a `prisma/dev.db`.
