@@ -1,27 +1,68 @@
 import type { Request, Response, RequestHandler } from "express";
+import prisma from "../config/prisma.js";
 import {
-  createPedido,
-  getAvailablePedidos,
-  getPedidosByRepartidor,
-  getPedidosByCliente,
-  assignPedidoToRepartidor,
-  updatePedidoStatus,
-  getPedidoById,
+  createCompra,
+  getAvailableCompras,
+  getComprasByRepartidor,
+  getComprasByCliente,
+  assignCompraToRepartidor,
+  updateCompraStatus,
+  getCompraById,
 } from "../services/CompraService.js";
 import type { AuthRequest, IdParams } from "../types/index.js";
 
-export const CreatePedido: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+export const GetAllCompras: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { clienteId, sucursalId, items } = req.body;
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ message: "No autorizado" });
+      return;
+    }
+
+    const where: any = {};
+
+    if (user.rol === "gerente") {
+      where.sucursalId = user.sucursalId;
+    } else if (user.rol === "trabajador") {
+      where.sucursalId = user.sucursalId;
+    }
+    // admin sees all — no filter
+
+    const compras = await prisma.compra.findMany({
+      where,
+      include: {
+        cliente: { select: { id: true, nombre: true, apellido: true, correo: true, cedula: true } },
+        sucursal: { select: { id: true, nombre: true, ciudad: true } },
+        detalles: { include: { producto: { select: { id: true, nombre: true, imagen: true } } } },
+      },
+      orderBy: { fecha: "desc" },
+    });
+
+    res.json({ data: compras });
+  } catch (error) {
+    console.error("Error obteniendo compras:", error);
+    res.status(500).json({ message: "Error al obtener compras" });
+  }
+};
+
+export const CreateCompra: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    console.log("[CreateCompra] body recibido:", JSON.stringify(req.body, null, 2));
+    const { clienteId, sucursalId, items, tipo } = req.body;
     if (!clienteId || !sucursalId || !Array.isArray(items)) {
+      console.log("[CreateCompra] validación falló - datos:", { clienteId, sucursalId, items });
       res.status(400).json({ message: "clienteId, sucursalId e items son requeridos" });
       return;
     }
-    const pedido = await createPedido(parseInt(clienteId), parseInt(sucursalId), items);
-    res.status(201).json({ message: "Pedido creado", data: pedido });
+    const compra = await createCompra(parseInt(clienteId), parseInt(sucursalId), items, tipo || "compra_web");
+    res.status(201).json({ message: "Compra creada", data: compra });
   } catch (error: any) {
     if (error.message === "PRODUCT_NOT_FOUND") {
       res.status(404).json({ message: "Producto no encontrado en items" });
+      return;
+    }
+    if (error.message === "SUCURSAL_NOT_FOUND") {
+      res.status(404).json({ message: "No hay sucursales disponibles" });
       return;
     }
     console.error(error);
@@ -31,8 +72,8 @@ export const CreatePedido: RequestHandler = async (req: Request, res: Response):
 
 export const GetAvailable: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const pedidos = await getAvailablePedidos();
-    res.json({ data: pedidos });
+    const compras = await getAvailableCompras();
+    res.json({ data: compras });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedidos disponibles" });
@@ -51,15 +92,15 @@ export const GetMine: RequestHandler = async (req: AuthRequest, res: Response): 
       res.status(400).json({ message: "ID de repartidor inválido" });
       return;
     }
-    const pedidos = await getPedidosByRepartidor(userId);
-    res.json({ data: pedidos });
+    const compras = await getComprasByRepartidor(userId);
+    res.json({ data: compras });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedidos del repartidor" });
   }
 };
 
-export const AssignPedido: RequestHandler<IdParams> = async (req: AuthRequest<IdParams>, res: Response): Promise<void> => {
+export const AssignCompra: RequestHandler<IdParams> = async (req: AuthRequest<IdParams>, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const user = req.user;
@@ -71,13 +112,13 @@ export const AssignPedido: RequestHandler<IdParams> = async (req: AuthRequest<Id
       res.status(400).json({ message: "ID de pedido es requerido" });
       return;
     }
-    const pedidoId = Number(id);
+    const compraId = Number(id);
     const userId = typeof user.id === "string" ? Number(user.id) : user.id;
-    if (Number.isNaN(pedidoId) || Number.isNaN(userId)) {
+    if (Number.isNaN(compraId) || Number.isNaN(userId)) {
       res.status(400).json({ message: "ID inválido" });
       return;
     }
-    const updated = await assignPedidoToRepartidor(pedidoId, userId);
+    const updated = await assignCompraToRepartidor(compraId, userId);
     res.json({ message: "Pedido asignado", data: updated });
   } catch (error: any) {
     if (error.message === "NOT_FOUND") {
@@ -105,12 +146,12 @@ export const UpdateStatus: RequestHandler<IdParams> = async (req: AuthRequest<Id
       res.status(400).json({ message: "Status es requerido" });
       return;
     }
-    const pedidoId = Number(id);
-    if (Number.isNaN(pedidoId)) {
+    const compraId = Number(id);
+    if (Number.isNaN(compraId)) {
       res.status(400).json({ message: "ID de pedido inválido" });
       return;
     }
-    const updated = await updatePedidoStatus(pedidoId, status);
+    const updated = await updateCompraStatus(compraId, status);
     res.json({ message: "Status actualizado", data: updated });
   } catch (error: any) {
     if (error.message === "NOT_FOUND") {
@@ -122,20 +163,20 @@ export const UpdateStatus: RequestHandler<IdParams> = async (req: AuthRequest<Id
   }
 };
 
-export const GetPedido: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
+export const GetCompra: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     if (!id) {
       res.status(400).json({ message: "ID de pedido es requerido" });
       return;
     }
-    const pedidoId = Number(id);
-    if (Number.isNaN(pedidoId)) {
+    const compraId = Number(id);
+    if (Number.isNaN(compraId)) {
       res.status(400).json({ message: "ID de pedido inválido" });
       return;
     }
-    const pedido = await getPedidoById(pedidoId);
-    res.json({ data: pedido });
+    const compra = await getCompraById(compraId);
+    res.json({ data: compra });
   } catch (error: any) {
     if (error.message === "NOT_FOUND") {
       res.status(404).json({ message: "Pedido no encontrado" });
@@ -146,7 +187,7 @@ export const GetPedido: RequestHandler<IdParams> = async (req: Request<IdParams>
   }
 };
 
-export const GetClienteMisPedidos: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+export const GetClienteMisCompras: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user;
     if (!user) {
@@ -158,15 +199,15 @@ export const GetClienteMisPedidos: RequestHandler = async (req: AuthRequest, res
       res.status(400).json({ message: "ID de cliente inválido" });
       return;
     }
-    const pedidos = await getPedidosByCliente(clienteId, {});
-    res.json({ data: pedidos });
+    const compras = await getComprasByCliente(clienteId, {});
+    res.json({ data: compras });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedidos del cliente" });
   }
 };
 
-export const GetPedidosByClienteController: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+export const GetComprasByClienteController: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const clienteId = parseInt(req.params.clienteId as string);
     if (isNaN(clienteId)) {
@@ -188,8 +229,8 @@ export const GetPedidosByClienteController: RequestHandler = async (req: AuthReq
     if (precioMin) filters.precioMin = parseFloat(precioMin as string);
     if (precioMax) filters.precioMax = parseFloat(precioMax as string);
 
-    const pedidos = await getPedidosByCliente(clienteId, filters);
-    res.json({ data: pedidos });
+    const compras = await getComprasByCliente(clienteId, filters);
+    res.json({ data: compras });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedidos del cliente" });

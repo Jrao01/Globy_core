@@ -1,0 +1,55 @@
+services:
+  backend:
+    build: .
+    container_name: globy_backend
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./data/dev.db
+      - LLM_BASE_URL=http://ollama:11434/v1
+    env_file:
+      - .env
+    volumes:
+      - backend_data:/app/data
+      - backend_uploads:/app/uploads
+      - backend_documents:/app/documents
+    depends_on:
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/ping', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: globy_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ${OLLAMA_HOME:-ollama_data}:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        sleep 10
+        echo "Verificando modelo ${LLM_MODEL:-ministral-3:3b}..."
+        ollama pull ${LLM_MODEL:-ministral-3:3b}
+        echo "Ollama listo."
+        wait
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  backend_data:
+  backend_uploads:
+  backend_documents:
+  ollama_data:

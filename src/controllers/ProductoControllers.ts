@@ -28,6 +28,7 @@ export const CreateProducto: RequestHandler = async (req: Request, res: Response
     return;
   }
   try {
+    console.log("[ProductoControllers] [CreateProducto] body:", JSON.stringify(req.body, null, 2));
     const categoriaIdNumber = typeof categoriaId === "string" ? Number(categoriaId) : categoriaId;
     if (Number.isNaN(categoriaIdNumber)) {
       res.status(400).json({ message: "categoriaId inválido" });
@@ -43,6 +44,7 @@ export const CreateProducto: RequestHandler = async (req: Request, res: Response
 
 export const GetAllProductos: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[ProductoControllers] [GetAllProductos]");
     const productos = await getAllProductos();
     res.json({ data: productos });
   } catch (error) {
@@ -58,6 +60,7 @@ export const UpdateProducto: RequestHandler = async (req: Request, res: Response
     return;
   }
   try {
+    console.log("[ProductoControllers] [UpdateProducto] body:", JSON.stringify(req.body, null, 2));
     const updated = await updateProducto(id, updateData);
     res.json({ message: "Producto actualizado correctamente", data: updated });
   } catch (error) {
@@ -78,6 +81,7 @@ export const GetProductoById: RequestHandler = async (req: Request, res: Respons
     return;
   }
   try {
+    console.log("[ProductoControllers] [GetProductoById] body:", JSON.stringify(req.body, null, 2));
     const producto = await getProductoById(productoId);
     res.json({ data: producto });
   } catch (error: any) {
@@ -93,6 +97,7 @@ export const GetProductoById: RequestHandler = async (req: Request, res: Respons
 export const GetProductoDetail: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   const { id } = req.params;
   try {
+    console.log("[ProductoControllers] [GetProductoDetail] params:", req.params);
     const numericId = Number(id);
     if (Number.isNaN(numericId)) {
       res.status(400).json({ message: "ID de producto inválido" });
@@ -125,6 +130,7 @@ export const GetProductoDetail: RequestHandler<IdParams> = async (req: Request<I
 
 export const GetCategorias: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[ProductoControllers] [GetCategorias]");
     const categorias = await getCategorias();
     res.json({ data: categorias });
   } catch (error) {
@@ -139,6 +145,7 @@ export const GetInventoryBySucursal: RequestHandler<SucursalParams> = async (req
     return;
   }
   try {
+    console.log("[ProductoControllers] [GetInventoryBySucursal] params:", req.params);
     const sucursalIdNumber = Number(sucursalId);
     if (Number.isNaN(sucursalIdNumber)) {
       res.status(400).json({ message: "ID de sucursal inválido" });
@@ -154,6 +161,7 @@ export const GetInventoryBySucursal: RequestHandler<SucursalParams> = async (req
 export const UpdateStock: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   const { sucursalId, productoId, stockActual, stockMinimo, cantVentas, estadoStock, status } = req.body;
   try {
+    console.log("[ProductoControllers] [UpdateStock] body:", JSON.stringify(req.body, null, 2));
     const inventory = await updateInventory(
       parseInt(sucursalId),
       parseInt(productoId),
@@ -174,6 +182,7 @@ export const UpdateStock: RequestHandler = async (req: Request, res: Response): 
 
 export const EnableProducto: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   try {
+    console.log("[ProductoControllers] [EnableProducto] params:", req.params);
     const { id } = req.params;
     if (!id) {
       res.status(400).json({ message: "ID del producto es requerido" });
@@ -194,6 +203,7 @@ export const EnableProducto: RequestHandler<IdParams> = async (req: Request<IdPa
 
 export const DisableProducto: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   try {
+    console.log("[ProductoControllers] [DisableProducto] params:", req.params);
     const { id } = req.params;
     if (!id) {
       res.status(400).json({ message: "ID del producto es requerido" });

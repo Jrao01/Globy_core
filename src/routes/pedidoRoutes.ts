@@ -1,30 +1,33 @@
 import { Router } from "express";
 import {
-  CreatePedido,
+  CreateCompra,
   GetAvailable,
   GetMine,
-  GetClienteMisPedidos,
-  AssignPedido,
+  GetAllCompras,
+  GetClienteMisCompras,
+  AssignCompra,
   UpdateStatus,
-  GetPedido,
-  GetPedidosByClienteController,
+  GetCompra,
+  GetComprasByClienteController,
 } from "../controllers/CompraControllers.js";
-import { GetDetallesByPedido, AddDetalle } from "../controllers/CompraDetalleControllers.js";
-import { verifyToken } from "../middlewares/authMiddleware.js";
+import { GetDetallesByCompra, AddDetalle } from "../controllers/CompraDetalleControllers.js";
+import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { validate, schemas } from "../middleware/validate.js";
 
 const router = Router();
 
-router.post("/create", CreatePedido);
-router.get("/available", verifyToken, GetAvailable);
-router.get("/mine", verifyToken, GetMine);
-router.get("/mis-pedidos", verifyToken, GetClienteMisPedidos);
-router.get("/cliente/:clienteId", verifyToken, GetPedidosByClienteController);
-router.post<{ id: string }>("/:id/assign", verifyToken, AssignPedido);
-router.put<{ id: string }>("/:id/status", verifyToken, UpdateStatus);
-router.get<{ id: string }>("/:id", verifyToken, GetPedido);
+router.post("/create", verifyToken, validate(schemas.createCompra), CreateCompra);
+router.get("/all", verifyToken, verifyRole("admin", "gerente", "trabajador"), GetAllCompras);
+router.get("/available", verifyToken, verifyRole("admin", "gerente", "trabajador", "delivery"), GetAvailable);
+router.get("/mine", verifyToken, verifyRole("delivery"), GetMine);
+router.get("/mis-compras", verifyToken, GetClienteMisCompras);
+router.get("/cliente/:clienteId", verifyToken, verifyRole("admin", "gerente", "trabajador"), GetComprasByClienteController);
+router.post<{ id: string }>("/:id/assign", verifyToken, verifyRole("admin", "gerente", "delivery"), AssignCompra);
+router.put<{ id: string }>("/:id/status", verifyToken, verifyRole("admin", "gerente", "trabajador", "delivery"), UpdateStatus);
+router.get<{ id: string }>("/:id", verifyToken, GetCompra);
 
 // Detalles
-router.get<{ pedidoId: string }>("/:pedidoId/detalles", verifyToken, GetDetallesByPedido);
-router.post<{ pedidoId: string }>("/:pedidoId/detalles", verifyToken, AddDetalle);
+router.get<{ compraId: string }>("/:compraId/detalles", verifyToken, GetDetallesByCompra);
+router.post<{ compraId: string }>("/:compraId/detalles", verifyToken, verifyRole("admin", "gerente", "trabajador"), AddDetalle);
 
 export default router;

@@ -7,6 +7,7 @@ const apifyService = new ApifyService();
 
 export const SearchCompetitors: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[CompetitorControllers] [SearchCompetitors] body:", JSON.stringify(req.body, null, 2));
     const filters: CompetidoresSearch = req.body;
     if (!filters.categories?.length || !filters.city?.length) {
       res.status(400).json({ message: "Debe especificar al menos una categoría y una ciudad" });
@@ -33,54 +34,58 @@ export const SearchCompetitors: RequestHandler = async (req: Request, res: Respo
       },
     });
 
-    // Remove old links so they get replaced with fresh results
-    await prisma.competidoresBusqueda.deleteMany({ where: { busquedaId: busqueda.id } });
+    const resultado = await prisma.$transaction(async (tx) => {
+      await tx.competidoresBusqueda.deleteMany({ where: { busquedaId: busqueda.id } });
 
-    for (const item of results) {
-      if (!item.placeId) continue;
-      const competidor = await prisma.competidor.upsert({
-        where: { placeId: item.placeId },
-        update: {
-          nombre: item.title,
-          ciudad: item.city,
-          direccion: item.address,
-          coordenadasLat: item.location?.lat ?? 0,
-          coordenadasLng: item.location?.lng ?? 0,
-          cantReviews: item.reviewsCount ?? 0,
-          ratingPromedio: item.totalScore ?? null,
-          tipoNegocio: item.categoryName ?? null,
-          categories: JSON.stringify(item.categories ?? []),
-          website: item.website ?? null,
-          phone: item.phone ?? null,
-          ultimaVerif: new Date(),
-        },
-        create: {
-          placeId: item.placeId,
-          nombre: item.title,
-          ciudad: item.city,
-          direccion: item.address,
-          coordenadasLat: item.location?.lat ?? 0,
-          coordenadasLng: item.location?.lng ?? 0,
-          cantReviews: item.reviewsCount ?? 0,
-          ratingPromedio: item.totalScore ?? null,
-          tipoNegocio: item.categoryName ?? null,
-          categories: JSON.stringify(item.categories ?? []),
-          website: item.website ?? null,
-          phone: item.phone ?? null,
-        },
-      });
+      let guardados = 0;
+      for (const item of results) {
+        if (!item.placeId) continue;
+        const competidor = await tx.competidor.upsert({
+          where: { placeId: item.placeId },
+          update: {
+            nombre: item.title,
+            ciudad: item.city,
+            direccion: item.address,
+            coordenadasLat: item.location?.lat ?? 0,
+            coordenadasLng: item.location?.lng ?? 0,
+            cantReviews: item.reviewsCount ?? 0,
+            ratingPromedio: item.totalScore ?? null,
+            tipoNegocio: item.categoryName ?? null,
+            categories: JSON.stringify(item.categories ?? []),
+            website: item.website ?? null,
+            phone: item.phone ?? null,
+            ultimaVerif: new Date(),
+          },
+          create: {
+            placeId: item.placeId,
+            nombre: item.title,
+            ciudad: item.city,
+            direccion: item.address,
+            coordenadasLat: item.location?.lat ?? 0,
+            coordenadasLng: item.location?.lng ?? 0,
+            cantReviews: item.reviewsCount ?? 0,
+            ratingPromedio: item.totalScore ?? null,
+            tipoNegocio: item.categoryName ?? null,
+            categories: JSON.stringify(item.categories ?? []),
+            website: item.website ?? null,
+            phone: item.phone ?? null,
+          },
+        });
 
-      await prisma.competidoresBusqueda.create({
-        data: {
-          busquedaId: busqueda.id,
-          competidorId: competidor.id,
-        },
-      });
-    }
+        await tx.competidoresBusqueda.create({
+          data: {
+            busquedaId: busqueda.id,
+            competidorId: competidor.id,
+          },
+        });
+        guardados++;
+      }
+      return guardados;
+    });
 
     res.json({
-      message: `Búsqueda completada — ${results.length} competidores guardados`,
-      data: { busquedaId: busqueda.id, total: results.length },
+      message: `Búsqueda completada — ${resultado} competidores guardados`,
+      data: { busquedaId: busqueda.id, total: resultado },
     });
   } catch (error: any) {
     console.error("Error en búsqueda de competidores:", error);
@@ -90,6 +95,7 @@ export const SearchCompetitors: RequestHandler = async (req: Request, res: Respo
 
 export const GetSearchHistory: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[CompetitorControllers] [GetSearchHistory]");
     const busquedas = await prisma.busquedaCompetidor.findMany({
       orderBy: { createdAt: "desc" },
       include: {
@@ -106,6 +112,7 @@ export const GetSearchHistory: RequestHandler = async (_req: Request, res: Respo
 
 export const GetCompetitors: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[CompetitorControllers] [GetCompetitors]");
     const competidores = await prisma.competidor.findMany({
       orderBy: { ultimaVerif: "desc" },
     });

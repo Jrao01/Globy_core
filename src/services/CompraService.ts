@@ -1,29 +1,42 @@
 import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/index.js";
 
-export const createPedido = async (
+export const createCompra = async (
   clienteId: number,
   sucursalId: number,
-  items: { productoId: number; cantidad: number }[]
+  items: { productoId: number; cantidad: number; precioUnit?: number }[],
+  tipo = "compra_web"
 ) => {
-  // calcular total y preparar detalles con precioUnit
+  console.log("[createCompra] datos recibidos:", { clienteId, sucursalId, items, tipo });
+
+  // Validate sucursal exists, otherwise fallback to first available
+  let sucursal = await prisma.sucursal.findUnique({ where: { id: sucursalId } });
+  if (!sucursal) {
+    sucursal = await prisma.sucursal.findFirst({ where: { status: true }, orderBy: { id: "asc" } });
+    if (!sucursal) throw new Error("SUCURSAL_NOT_FOUND");
+    sucursalId = sucursal.id;
+    console.log("[createCompra] sucursalId inválido, usando:", sucursalId);
+  }
+
   const detallesPrepared = [] as any[];
   let total = 0;
 
   for (const it of items) {
     const producto = await prisma.producto.findUnique({ where: { id: it.productoId } });
     if (!producto) throw new Error("PRODUCT_NOT_FOUND");
-    const precioUnit = producto.precioBase;
+    const precioUnit = it.precioUnit ?? producto.precioBase;
     const lineTotal = precioUnit * it.cantidad;
     total += lineTotal;
     detallesPrepared.push({ productoId: it.productoId, cantidad: it.cantidad, precioUnit });
   }
 
-  const pedido = await prisma.pedido.create({
+  const compra = await prisma.compra.create({
     data: {
       clienteId,
       sucursalId,
       total,
+      tipo,
+      status: tipo === "compra_directa" ? "completada" : "pendiente",
       detalles: {
         create: detallesPrepared,
       },
@@ -31,48 +44,48 @@ export const createPedido = async (
     include: { detalles: true },
   });
 
-  return pedido;
+  return compra;
 };
 
-export const getAvailablePedidos = async () => {
-  return prisma.pedido.findMany({
-    where: { repartidorId: null, status: { in: ["preparado", "pendiente"] } },
+export const getAvailableCompras = async () => {
+  return prisma.compra.findMany({
+    where: { tipo: "compra_web", repartidorId: null, status: { in: ["preparado", "pendiente"] } },
     include: { cliente: true, sucursal: true, detalles: { include: { producto: true } } },
     orderBy: { fecha: "asc" },
   });
 };
 
-export const getPedidosByRepartidor = async (repartidorId: number) => {
-  return prisma.pedido.findMany({
+export const getComprasByRepartidor = async (repartidorId: number) => {
+  return prisma.compra.findMany({
     where: { repartidorId },
     include: { cliente: true, sucursal: true, detalles: { include: { producto: true } } },
     orderBy: { fecha: "desc" },
   });
 };
 
-export const assignPedidoToRepartidor = async (pedidoId: number, repartidorId: number) => {
-  const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId } });
-  if (!pedido) throw new Error("NOT_FOUND");
-  if (pedido.repartidorId) throw new Error("ALREADY_ASSIGNED");
-  return prisma.pedido.update({ where: { id: pedidoId }, data: { repartidorId } });
+export const assignCompraToRepartidor = async (compraId: number, repartidorId: number) => {
+  const compra = await prisma.compra.findUnique({ where: { id: compraId } });
+  if (!compra) throw new Error("NOT_FOUND");
+  if (compra.repartidorId) throw new Error("ALREADY_ASSIGNED");
+  return prisma.compra.update({ where: { id: compraId }, data: { repartidorId } });
 };
 
-export const updatePedidoStatus = async (pedidoId: number, status: string) => {
-  const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId } });
-  if (!pedido) throw new Error("NOT_FOUND");
-  return prisma.pedido.update({ where: { id: pedidoId }, data: { status } });
+export const updateCompraStatus = async (compraId: number, status: string) => {
+  const compra = await prisma.compra.findUnique({ where: { id: compraId } });
+  if (!compra) throw new Error("NOT_FOUND");
+  return prisma.compra.update({ where: { id: compraId }, data: { status } });
 };
 
-export const getPedidoById = async (id: number) => {
-  const pedido = await prisma.pedido.findUnique({
+export const getCompraById = async (id: number) => {
+  const compra = await prisma.compra.findUnique({
     where: { id },
     include: { cliente: true, sucursal: true, detalles: { include: { producto: true } }, repartidor: true },
   });
-  if (!pedido) throw new Error("NOT_FOUND");
-  return pedido;
+  if (!compra) throw new Error("NOT_FOUND");
+  return compra;
 };
 
-export const getPedidosByCliente = async (
+export const getComprasByCliente = async (
   clienteId: number,
   filters: {
     fechaInicio?: string;
@@ -83,7 +96,7 @@ export const getPedidosByCliente = async (
     sucursalId?: number;
   }
 ) => {
-  const where: Prisma.PedidoWhereInput = { clienteId };
+  const where: Prisma.CompraWhereInput = { clienteId };
 
   if (filters.sucursalId) where.sucursalId = filters.sucursalId;
   if (filters.fechaInicio || filters.fechaFin) {
@@ -102,7 +115,7 @@ export const getPedidosByCliente = async (
     };
   }
 
-  return prisma.pedido.findMany({
+  return prisma.compra.findMany({
     where,
     include: {
       sucursal: true,

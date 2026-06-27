@@ -2,15 +2,20 @@ import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/index.js";
 import type { Personal } from "../generated/index.js";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
+const SALT_ROUNDS = 10;
 
 type SafePersonal = Omit<Personal, "password">;
 
 export const registerPersonal = async (
   data: Prisma.PersonalCreateInput
 ): Promise<SafePersonal> => {
-  const newUser = await prisma.personal.create({ data });
+  const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
+  const newUser = await prisma.personal.create({
+    data: { ...data, password: hashedPassword },
+  });
   const { password: _, ...safeUser } = newUser;
   return safeUser;
 };
@@ -24,8 +29,9 @@ export const loginPersonal = async (
     include: { sucursal: true },
   });
 
-  if (!user || user.password !== password)
-    throw new Error("INVALID_CREDENTIALS");
+  if (!user) throw new Error("INVALID_CREDENTIALS");
+  const passwordValid = await bcrypt.compare(password, user.password);
+  if (!passwordValid) throw new Error("INVALID_CREDENTIALS");
 
   const { password: _, ...safeUser } = user;
 
@@ -43,7 +49,11 @@ export const updatePersonal = async (
   updateData: Prisma.PersonalUpdateInput
 ): Promise<SafePersonal> => {
   if (!id) throw new Error("ID_REQUIRED");
-  const updated = await prisma.personal.update({ where: { id }, data: updateData });
+  const dataToUpdate: any = { ...updateData };
+  if (dataToUpdate.password) {
+    dataToUpdate.password = await bcrypt.hash(dataToUpdate.password as string, SALT_ROUNDS);
+  }
+  const updated = await prisma.personal.update({ where: { id }, data: dataToUpdate });
   const { password: _, ...safeUser } = updated;
   return safeUser;
 };

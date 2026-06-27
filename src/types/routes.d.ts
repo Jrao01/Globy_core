@@ -6,6 +6,6 @@ export interface SucursalParams {
   sucursalId: string;
 }
 
-export interface PedidoIdParams {
-  pedidoId: string;
+export interface CompraIdParams {
+  compraId: string;
 }

@@ -1,20 +1,21 @@
 import type { Request, Response, RequestHandler } from "express";
-import type { PedidoIdParams } from "../types/index.js";
-import { getDetallesByPedido, addDetalle } from "../services/CompraDetalleService.js";
+import type { CompraIdParams } from "../types/index.js";
+import { getDetallesByCompra, addDetalle } from "../services/CompraDetalleService.js";
 
-export const GetDetallesByPedido: RequestHandler<PedidoIdParams> = async (req: Request<PedidoIdParams>, res: Response): Promise<void> => {
+export const GetDetallesByCompra: RequestHandler<CompraIdParams> = async (req: Request<CompraIdParams>, res: Response): Promise<void> => {
   try {
-    const { pedidoId } = req.params;
-    if (!pedidoId) {
+    console.log("[CompraDetalleControllers] [GetDetallesByCompra] params:", req.params);
+    const { compraId } = req.params;
+    if (!compraId) {
       res.status(400).json({ message: "ID de pedido es requerido" });
       return;
     }
-    const pedidoIdNumber = Number(pedidoId);
-    if (Number.isNaN(pedidoIdNumber)) {
+    const compraIdNumber = Number(compraId);
+    if (Number.isNaN(compraIdNumber)) {
       res.status(400).json({ message: "ID de pedido inválido" });
       return;
     }
-    const detalles = await getDetallesByPedido(pedidoIdNumber);
+    const detalles = await getDetallesByCompra(compraIdNumber);
     res.json({ data: detalles });
   } catch (error) {
     console.error(error);
@@ -22,22 +23,24 @@ export const GetDetallesByPedido: RequestHandler<PedidoIdParams> = async (req: R
   }
 };
 
-export const AddDetalle: RequestHandler<PedidoIdParams> = async (req: Request<PedidoIdParams>, res: Response): Promise<void> => {
+export const AddDetalle: RequestHandler<CompraIdParams> = async (req: Request<CompraIdParams>, res: Response): Promise<void> => {
   try {
-    const { pedidoId } = req.params;
+    console.log("[CompraDetalleControllers] [AddDetalle] body:", JSON.stringify(req.body, null, 2));
+    console.log("[CompraDetalleControllers] [AddDetalle] params:", req.params);
+    const { compraId } = req.params;
     const { productoId, cantidad } = req.body;
-    if (!pedidoId || !productoId || !cantidad) {
-      res.status(400).json({ message: "pedidoId, productoId y cantidad son requeridos" });
+    if (!compraId || !productoId || !cantidad) {
+      res.status(400).json({ message: "compraId, productoId y cantidad son requeridos" });
       return;
     }
-    const pedidoIdNumber = Number(pedidoId);
+    const compraIdNumber = Number(compraId);
     const productoIdNumber = Number(productoId);
     const cantidadNumber = Number(cantidad);
-    if (Number.isNaN(pedidoIdNumber) || Number.isNaN(productoIdNumber) || Number.isNaN(cantidadNumber)) {
+    if (Number.isNaN(compraIdNumber) || Number.isNaN(productoIdNumber) || Number.isNaN(cantidadNumber)) {
       res.status(400).json({ message: "IDs o cantidad inválidos" });
       return;
     }
-    const detalle = await addDetalle(pedidoIdNumber, productoIdNumber, cantidadNumber);
+    const detalle = await addDetalle(compraIdNumber, productoIdNumber, cantidadNumber);
     res.status(201).json({ message: "Detalle agregado", data: detalle });
   } catch (error: any) {
     if (error.message === "PRODUCT_NOT_FOUND") {

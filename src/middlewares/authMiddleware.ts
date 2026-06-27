@@ -31,3 +31,17 @@ export const verifyToken: RequestHandler = <P = any, ResBody = any, ReqBody = an
         res.status(403).json({ message: "Token inválido o expirado." });
     }
 };
+
+export const verifyRole = (...rolesPermitidos: string[]): RequestHandler => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ message: "No autenticado." });
+      return;
+    }
+    if (!rolesPermitidos.includes(req.user.rol)) {
+      res.status(403).json({ message: "No tiene permisos para acceder a este recurso." });
+      return;
+    }
+    next();
+  };
+};

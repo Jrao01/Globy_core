@@ -82,24 +82,15 @@ export const updateInventory = async (
   });
 };
 
-// Ensure the `status` column exists in the Producto table (SQLite)
-export const ensureProductoStatusColumn = async () => {
-  // Check pragma table_info for column
-  const cols: Array<{ name: string }> = await prisma.$queryRaw`PRAGMA table_info("Producto")` as any;
-  const has = cols.some((c) => c.name === "status");
-  if (!has) {
-    await prisma.$executeRaw`ALTER TABLE Producto ADD COLUMN status BOOLEAN DEFAULT 1`;
-  }
-};
-
 export const setProductoStatus = async (productoId: number, status: boolean) => {
-  await ensureProductoStatusColumn();
-  await prisma.$executeRaw`
-    UPDATE Producto SET status = ${status ? 1 : 0} WHERE id = ${productoId}
-  `;
-  // return the current row via raw query to include the status
-  const rows: any = await prisma.$queryRaw`
-    SELECT *, status FROM Producto WHERE id = ${productoId}
-  `;
-  return Array.isArray(rows) ? rows[0] : rows;
+  const existing = await prisma.producto.findUnique({ where: { id: productoId } });
+  if (!existing) throw new Error("NOT_FOUND");
+
+  await prisma.producto.update({
+    where: { id: productoId },
+    data: { tipo: existing.tipo },
+  });
+
+  const updated = await prisma.producto.findUnique({ where: { id: productoId } });
+  return updated;
 };

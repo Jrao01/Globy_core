@@ -2,12 +2,15 @@ import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/index.js";
 import type { Cliente } from "../generated/index.js";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
+const SALT_ROUNDS = 10;
 
 export const registerCliente = async (
   data: Prisma.ClienteCreateInput
 ): Promise<Omit<Cliente, "password">> => {
+  const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
   const newUser = await prisma.cliente.create({
     data: {
       nombre: data.nombre,
@@ -16,7 +19,7 @@ export const registerCliente = async (
       correo: data.correo,
       telefono: data.telefono ?? null,
       direccion: data.direccion ?? null,
-      password: data.password,
+      password: hashedPassword,
     },
   });
   const { password: _, ...safeUser } = newUser;
@@ -30,7 +33,8 @@ export const loginCliente = async (
   const user = await prisma.cliente.findUnique({ where: { correo } });
 
   if (!user) throw new Error("USER_NOT_FOUND");
-  if (user.password !== password) throw new Error("INVALID_PASSWORD");
+  const passwordValid = await bcrypt.compare(password, user.password);
+  if (!passwordValid) throw new Error("INVALID_PASSWORD");
 
   const { password: _, ...safeUser } = user;
 
@@ -84,4 +88,35 @@ export const updateCliente = async (
 export const getAllClientes = async (): Promise<Omit<Cliente, "password">[]> => {
   const users = await prisma.cliente.findMany({ orderBy: { createdAt: "desc" } });
   return users.map(({ password: _, ...safe }) => safe);
+};
+
+export const changeClientePassword = async (
+  id: number,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> => {
+  const user = await prisma.cliente.findUnique({ where: { id } });
+  if (!user) throw new Error("USER_NOT_FOUND");
+  const passwordValid = await bcrypt.compare(currentPassword, user.password);
+  if (!passwordValid) throw new Error("INVALID_PASSWORD");
+  const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await prisma.cliente.update({ where: { id }, data: { password: hashedPassword } });
+};
+
+export const getClienteStats = async (clienteId: number) => {
+  const compras = await prisma.compra.findMany({
+    where: { clienteId },
+    select: { total: true, status: true, fecha: true },
+  });
+  const totalCompras = compras.length;
+  const totalGastado = compras.reduce((sum, c) => sum + c.total, 0);
+  return { totalCompras, totalGastado };
+};
+
+export const getClienteConexiones = async (clienteId: number) => {
+  return await prisma.conexion.findMany({
+    where: { clienteId },
+    select: { id: true, latitud: true, longitud: true, fecha: true, dispositivo: true, ip: true },
+    orderBy: { fecha: "desc" },
+  });
 };

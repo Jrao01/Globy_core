@@ -10,6 +10,7 @@ import {
 
 export const CreateCategoria: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[CategoriaControllers] [CreateCategoria] body:", JSON.stringify(req.body, null, 2));
     const data = req.body as Prisma.CategoriaCreateInput;
     if (!data.nombre) {
       res.status(400).json({ message: "nombre es requerido" });
@@ -29,6 +30,7 @@ export const CreateCategoria: RequestHandler = async (req: Request, res: Respons
 
 export const GetAllCategorias: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[CategoriaControllers] [GetAllCategorias]");
     const categorias = await getAllCategorias();
     res.json({ data: categorias });
   } catch (error) {
@@ -44,6 +46,7 @@ export const UpdateCategoria: RequestHandler = async (req: Request, res: Respons
     return;
   }
   try {
+    console.log("[CategoriaControllers] [UpdateCategoria] body:", JSON.stringify(req.body, null, 2));
     const updated = await updateCategoria(id, data);
     res.json({ message: "Categoría actualizada", data: updated });
   } catch (error: any) {
@@ -68,6 +71,7 @@ export const DeleteCategoria: RequestHandler<IdParams> = async (req: Request<IdP
     return;
   }
   try {
+    console.log("[CategoriaControllers] [DeleteCategoria] params:", req.params);
     await deleteCategoria(categoriaId);
     res.json({ message: "Categoría eliminada" });
   } catch (error: any) {

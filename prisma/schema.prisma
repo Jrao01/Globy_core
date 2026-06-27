@@ -17,6 +17,14 @@ model EmpresaConfig {
   logoUrl         String?
   pais            String   @default("Venezuela")
   
+  // Color primario personalizado (hex, ej: #5713be)
+  colorPrimario   String   @default("#5713be")
+
+  // Banner de la tienda pública
+  bannerImg       String?
+  bannerTitle     String?
+  bannerSubtitle  String?
+
   // Configuración SMTP para envío de correos automáticos
   smtpHost        String?
   smtpPort        Int?
@@ -38,7 +46,7 @@ model Cliente {
   direccion    String?
   tipoCliente  String       @default("bronce")
   conexiones   Conexion[]
-  pedidos      Pedido[]
+  compras      Compra[]
   createdAt    DateTime     @default(now())
 }
 
@@ -49,20 +57,32 @@ enum PersonalRol {
   delivery
 }
 
+model TipoPersonal {
+  id           Int        @id @default(autoincrement())
+  nombre       String     @unique
+  pagaMensual  Float
+  status       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  personal     Personal[]
+}
+
 model Personal {
-  id           Int          @id @default(autoincrement())
-  nombre       String
-  apellido     String
-  cedula       String       @unique
-  correo       String       @unique
-  password     String
-  telefono     String?
-  rol          PersonalRol  @default(trabajador)
-  status       Boolean      @default(true)
-  sucursalId   Int?
-  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id])
-  pedidosAsignados Pedido[] @relation("Repartidor")
-  createdAt    DateTime     @default(now())
+  id              Int          @id @default(autoincrement())
+  nombre          String
+  apellido        String
+  cedula          String       @unique
+  correo          String       @unique
+  password        String
+  telefono        String?
+  rol             PersonalRol  @default(trabajador)
+  status          Boolean      @default(true)
+  sucursalId      Int?
+  sucursal        Sucursal?    @relation(fields: [sucursalId], references: [id])
+  tipoPersonalId  Int?
+  tipoPersonal    TipoPersonal? @relation(fields: [tipoPersonalId], references: [id])
+  sueldoMensual   Float?         // Override del sueldo del tipo de personal
+  comprasAsignadas Compra[]     @relation("Repartidor")
+  createdAt       DateTime     @default(now())
 }
 
 // --- INFRAESTRUCTURA Y MERCADO ---
@@ -77,8 +97,9 @@ model Sucursal {
   status          Boolean      @default(true)
   personal        Personal[]
   inventarios     Inventario[]
-  pedidos         Pedido[]
+  compras         Compra[]
   informes        InformeAnalitico[]
+  ofertas         OfertaSucursal[]
 }
 
 model Competidor {
@@ -125,6 +146,7 @@ model Categoria {
   nombre      String     @unique
   descripcion String?
   productos   Producto[]
+  ofertas     Oferta[]
 }
 
 model Producto {
@@ -133,12 +155,15 @@ model Producto {
   tipo            String
   descripcion     String?
   precioBase      Float
+  costo           Float?            // Costo de adquisición por unidad
   emailProveedor  String
   imagen          String?
   categoriaId     Int
   categoria       Categoria         @relation(fields: [categoriaId], references: [id])
   inventarios     Inventario[]
-  detallesPedido  PedidoDetalle[]
+  detallesCompra  CompraDetalle[]
+  ofertas         Oferta[]
+  excepciones     OfertaExcepcion[]
 }
 
 model Inventario {
@@ -181,52 +206,113 @@ model Auditoria {
   geoIPId    Int?
   geoIP      GeoIP?   @relation(fields: [geoIPId], references: [id])
   createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([ip])
+  @@index([ruta])
 }
 
 // --- RECOLECCIÓN DE DATOS (SENSORES) ---
 model Conexion {
-  id           Int      @id @default(autoincrement())
-  clienteId    Int
-  ip           String
-  latitud      Float
-  longitud     Float
-  dispositivo  String?
-  fecha        DateTime @default(now())
-  cliente      Cliente  @relation(fields: [clienteId], references: [id])
+  id            Int      @id @default(autoincrement())
+  clienteId     Int?
+  dispositivoId String?
+  ip            String
+  latitud       Float
+  longitud      Float
+  dispositivo   String?
+  fecha         DateTime @default(now())
+  cliente       Cliente? @relation(fields: [clienteId], references: [id])
+
+  @@index([clienteId])
+  @@index([fecha])
 }
 
-model Pedido {
+model Compra {
   id           Int             @id @default(autoincrement())
   clienteId    Int
   sucursalId   Int
   repartidorId Int?
   total        Float
+  tipo         String          @default("compra_web") // "compra_directa" | "compra_web"
   status       String          @default("pendiente")
   fecha        DateTime        @default(now())
   cliente      Cliente         @relation(fields: [clienteId], references: [id])
   sucursal     Sucursal        @relation(fields: [sucursalId], references: [id])
   repartidor   Personal?       @relation("Repartidor", fields: [repartidorId], references: [id])
-  detalles     PedidoDetalle[]
+  detalles     CompraDetalle[]
+
+  @@index([fecha])
+  @@index([sucursalId])
+  @@index([clienteId])
+  @@index([status])
+  @@index([repartidorId])
 }
 
-model PedidoDetalle {
-  id           Int      @id @default(autoincrement())
-  pedidoId     Int
-  productoId   Int
-  cantidad     Int
-  precioUnit   Float
-  pedido       Pedido   @relation(fields: [pedidoId], references: [id])
-  producto     Producto @relation(fields: [productoId], references: [id])
+model CompraDetalle {
+  id         Int      @id @default(autoincrement())
+  compraId   Int
+  productoId Int
+  cantidad   Int
+  precioUnit Float
+  compra     Compra   @relation(fields: [compraId], references: [id])
+  producto   Producto @relation(fields: [productoId], references: [id])
 }
 
 // --- GESTIÓN ECONÓMICA ---
 model GestionEconomica {
   id              Int      @id @default(autoincrement())
   monedaPrincipal String   @default("USD")
-  bcvPrice        Float    @default(1)
   autoUpdate      Boolean  @default(true)
-  updateFrequency String   @default("24H")
-  lastUpdate      DateTime @default(now())
+}
+
+model TasaCambio {
+  id        Int      @id @default(autoincrement())
+  moneda    String   // "USD" | "EUR"
+  precio    Float
+  fecha     DateTime @default(now())
+}
+
+// --- OFERTAS Y DESCUENTOS ---
+model Oferta {
+  id              Int                @id @default(autoincrement())
+  nombre          String
+  descripcion     String?
+  tipo            String             // "porcentaje" | "monto_fijo"
+  valor           Float              // 10 = 10% descuento, 5 = $5 descuento
+  montoMinimo     Float?             // precio mínimo del producto para aplicar
+  montoMaximo     Float?             // precio máximo del producto para aplicar
+  fechaInicio     DateTime
+  fechaFin        DateTime
+  activo          Boolean            @default(true)
+  prioridad       Int                @default(0)
+  createdAt       DateTime           @default(now())
+
+  categoriaId     Int?
+  productoId      Int?
+  categoria       Categoria?         @relation(fields: [categoriaId], references: [id])
+  producto        Producto?          @relation(fields: [productoId], references: [id])
+
+  sucursales      OfertaSucursal[]
+  excepciones     OfertaExcepcion[]
+}
+
+model OfertaSucursal {
+  ofertaId   Int
+  sucursalId Int
+  oferta     Oferta   @relation(fields: [ofertaId], references: [id], onDelete: Cascade)
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+
+  @@id([ofertaId, sucursalId])
+}
+
+model OfertaExcepcion {
+  ofertaId   Int
+  productoId Int
+  oferta     Oferta   @relation(fields: [ofertaId], references: [id], onDelete: Cascade)
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@id([ofertaId, productoId])
 }
 
 // --- INTELIGENCIA ARTIFICIAL ---
@@ -240,4 +326,8 @@ model InformeAnalitico {
   insightIA        String?  
   createdAt        DateTime @default(now())
   sucursal         Sucursal? @relation(fields: [sucursalId], references: [id])
+
+  @@index([createdAt])
+  @@index([tipoAnalisis])
+  @@index([sucursalId])
 }

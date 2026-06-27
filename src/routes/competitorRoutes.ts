@@ -1,10 +1,13 @@
 import { Router } from "express";
 import { SearchCompetitors, GetSearchHistory, GetCompetitors } from "../controllers/CompetitorControllers.js";
+import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { scrapingLimiter } from "../middleware/rateLimit.js";
+import { validate, schemas } from "../middleware/validate.js";
 
 const router = Router();
 
-router.post("/search", SearchCompetitors);
-router.get("/history", GetSearchHistory);
-router.get("/all", GetCompetitors);
+router.post("/search", verifyToken, verifyRole("admin", "gerente"), scrapingLimiter, validate(schemas.competitorSearch), SearchCompetitors);
+router.get("/history", verifyToken, verifyRole("admin", "gerente", "trabajador"), GetSearchHistory);
+router.get("/all", verifyToken, verifyRole("admin", "gerente", "trabajador"), GetCompetitors);
 
 export default router;

@@ -12,6 +12,7 @@ import {
 
 export const PersonalRegister: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    console.log("[PersonalControllers] [PersonalRegister] body:", JSON.stringify(req.body, null, 2));
     const requester = req.user;
     if (!requester || (requester.rol !== "admin" && requester.rol !== "gerente")) {
       res.status(403).json({ message: "No tienes permisos para crear personal" });
@@ -69,6 +70,7 @@ export const PersonalRegister: RequestHandler = async (req: AuthRequest, res: Re
 export const LogInPersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   const { correo, password } = req.body;
   try {
+    console.log("[PersonalControllers] [LogInPersonal] body:", JSON.stringify(req.body, null, 2));
     const result = await loginPersonal(correo, password);
     res.json({ message: "Login exitoso", data: result.user, token: result.token });
   } catch (error: any) {
@@ -88,6 +90,7 @@ export const UpdatePersonal: RequestHandler = async (req: Request, res: Response
     return;
   }
   try {
+    console.log("[PersonalControllers] [UpdatePersonal] body:", JSON.stringify(req.body, null, 2));
     const updated = await updatePersonal(id, updateData);
     res.json({ message: "Personal actualizado correctamente", data: updated });
   } catch (error) {
@@ -113,6 +116,8 @@ export const GetPersonalById: RequestHandler = async (req: AuthRequest, res: Res
     return;
   }
   try {
+    console.log("[PersonalControllers] [GetPersonalById] body:", JSON.stringify(req.body, null, 2));
+    console.log("[PersonalControllers] [GetPersonalById] params:", req.params);
     const user = await getPersonalById(id);
     res.json({ data: user });
   } catch (error: any) {
@@ -127,6 +132,7 @@ export const GetPersonalById: RequestHandler = async (req: AuthRequest, res: Res
 
 export const GetAllPersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[PersonalControllers] [GetAllPersonal]");
     const personnel = await getAllPersonal();
     res.json({ data: personnel });
   } catch (error) {
@@ -137,6 +143,7 @@ export const GetAllPersonal: RequestHandler = async (req: Request, res: Response
 
 export const EnablePersonal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   try {
+    console.log("[PersonalControllers] [EnablePersonal] params:", req.params);
     const { id } = req.params;
     if (!id) {
       res.status(400).json({ message: "ID es requerido" });
@@ -157,6 +164,7 @@ export const EnablePersonal: RequestHandler<IdParams> = async (req: Request<IdPa
 
 export const DisablePersonal: RequestHandler<IdParams> = async (req: Request<IdParams>, res: Response): Promise<void> => {
   try {
+    console.log("[PersonalControllers] [DisablePersonal] params:", req.params);
     const { id } = req.params;
     if (!id) {
       res.status(400).json({ message: "ID es requerido" });

@@ -1,41 +1,31 @@
+import cron from "node-cron";
 import prisma from "../config/prisma.js";
 import { updateBcvPrice } from "../services/BcvService.js";
 
-const FREQ_MS: Record<string, number> = {
-  "6H": 6 * 60 * 60 * 1000,
-  "12H": 12 * 60 * 60 * 1000,
-  "24H": 24 * 60 * 60 * 1000,
-};
-
-let cronTimer: ReturnType<typeof setInterval> | null = null;
+let task: cron.ScheduledTask | null = null;
 
 export function startBcvCron(): void {
-  if (cronTimer) return;
+  if (task) return;
 
-  cronTimer = setInterval(async () => {
+  task = cron.schedule("0 8,13 * * *", async () => {
     try {
       const eco = await prisma.gestionEconomica.findFirst();
       if (!eco || !eco.autoUpdate) return;
-
-      const freqMs = FREQ_MS[eco.updateFrequency] ?? 24 * 60 * 60 * 1000;
-      const elapsed = Date.now() - (eco.lastUpdate?.getTime() ?? 0);
-      if (elapsed >= freqMs) {
-        console.log("[BcvCron] Auto-actualizando precio BCV...");
-        await updateBcvPrice();
-        console.log("[BcvCron] Precio BCV actualizado automáticamente");
-      }
+      console.log("[BcvCron] Ejecutando actualización programada (8:00 / 13:00)...");
+      await updateBcvPrice();
+      console.log("[BcvCron] Tasas actualizadas correctamente");
     } catch (err) {
       console.error("[BcvCron] Error:", err);
     }
-  }, 60_000);
+  });
 
-  console.log("[BcvCron] Cron iniciado (verifica cada 60s)");
+  console.log("[BcvCron] Cron iniciado — programado para 8:00 y 13:00 todos los días");
 }
 
 export function stopBcvCron(): void {
-  if (cronTimer) {
-    clearInterval(cronTimer);
-    cronTimer = null;
+  if (task) {
+    task.stop();
+    task = null;
     console.log("[BcvCron] Cron detenido");
   }
 }

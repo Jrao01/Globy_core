@@ -3,6 +3,7 @@ import prisma from "../config/prisma.js";
 
 export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[TiendaControllers] [GetTiendaProductos]");
     const productos = await prisma.producto.findMany({
       include: {
         categoria: true,
@@ -33,6 +34,7 @@ export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Res
 
 export const GetTiendaCategorias: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
+    console.log("[TiendaControllers] [GetTiendaCategorias]");
     const categorias = await prisma.categoria.findMany();
     res.json({ data: categorias });
   } catch (error) {
@@ -43,6 +45,7 @@ export const GetTiendaCategorias: RequestHandler = async (_req: Request, res: Re
 export const GetTiendaProductoById: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   const { id } = req.params;
   try {
+    console.log("[TiendaControllers] [GetTiendaProductoById] params:", req.params);
     const numericId = Number(id);
     const producto = await prisma.producto.findUnique({
       where: { id: numericId },
