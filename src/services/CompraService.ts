@@ -5,9 +5,18 @@ export const createCompra = async (
   clienteId: number,
   sucursalId: number,
   items: { productoId: number; cantidad: number; precioUnit?: number }[],
-  tipo = "compra_web"
+  tipo = "compra_web",
+  extra?: {
+    metodoPago?: string;
+    refPago?: string;
+    direccionEntrega?: string;
+    coordenadasLat?: number;
+    coordenadasLng?: number;
+    distanciaKm?: number;
+    costoEnvio?: number;
+  }
 ) => {
-  console.log("[createCompra] datos recibidos:", { clienteId, sucursalId, items, tipo });
+  console.log("[createCompra] datos recibidos:", { clienteId, sucursalId, items, tipo, extra });
 
   // Validate sucursal exists, otherwise fallback to first available
   let sucursal = await prisma.sucursal.findUnique({ where: { id: sucursalId } });
@@ -37,6 +46,13 @@ export const createCompra = async (
       total,
       tipo,
       status: tipo === "compra_directa" ? "completada" : "pendiente",
+      metodoPago: extra?.metodoPago,
+      refPago: extra?.refPago,
+      direccionEntrega: extra?.direccionEntrega,
+      coordenadasLat: extra?.coordenadasLat,
+      coordenadasLng: extra?.coordenadasLng,
+      distanciaKm: extra?.distanciaKm,
+      costoEnvio: extra?.costoEnvio,
       detalles: {
         create: detallesPrepared,
       },

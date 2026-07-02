@@ -1,6 +1,27 @@
 import type { Request, Response, RequestHandler } from "express";
 import prisma from "../config/prisma.js";
 
+export const GetHistorialTasas: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const dias = parseInt(req.query.dias as string) || 90;
+    const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+    const tasas = await prisma.tasaCambio.findMany({
+      where: { fecha: { gte: desde } },
+      orderBy: { fecha: "asc" },
+      select: { moneda: true, precio: true, fecha: true },
+    });
+    const grouped: Record<string, any> = {};
+    tasas.forEach((t) => {
+      const key = t.fecha.toISOString().slice(0, 10);
+      if (!grouped[key]) grouped[key] = { fecha: key };
+      grouped[key][t.moneda.toLowerCase()] = t.precio;
+    });
+    res.json({ data: Object.values(grouped) });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const GetConfig: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
     console.log("[GestionEconomicaControllers] [GetConfig]");

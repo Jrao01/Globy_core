@@ -30,6 +30,10 @@ model EmpresaConfig {
   smtpPort        Int?
   smtpUser        String?
   smtpPass        String?
+
+  // Configuración de entregas
+  costoPorKm          Float    @default(0)
+  precioMinimoEntrega Float    @default(0)
   
   updatedAt       DateTime @updatedAt
 }
@@ -45,8 +49,11 @@ model Cliente {
   telefono     String?
   direccion    String?
   tipoCliente  String       @default("bronce")
+  coordenadasLat Float?
+  coordenadasLng Float?
   conexiones   Conexion[]
   compras      Compra[]
+  chats        Chat[]
   createdAt    DateTime     @default(now())
 }
 
@@ -82,6 +89,7 @@ model Personal {
   tipoPersonal    TipoPersonal? @relation(fields: [tipoPersonalId], references: [id])
   sueldoMensual   Float?         // Override del sueldo del tipo de personal
   comprasAsignadas Compra[]     @relation("Repartidor")
+  chats           Chat[]
   createdAt       DateTime     @default(now())
 }
 
@@ -155,6 +163,7 @@ model Producto {
   tipo            String
   descripcion     String?
   precioBase      Float
+  moneda          String            @default("USD")
   costo           Float?            // Costo de adquisición por unidad
   emailProveedor  String
   imagen          String?
@@ -229,18 +238,28 @@ model Conexion {
 }
 
 model Compra {
-  id           Int             @id @default(autoincrement())
-  clienteId    Int
-  sucursalId   Int
-  repartidorId Int?
-  total        Float
-  tipo         String          @default("compra_web") // "compra_directa" | "compra_web"
-  status       String          @default("pendiente")
-  fecha        DateTime        @default(now())
-  cliente      Cliente         @relation(fields: [clienteId], references: [id])
-  sucursal     Sucursal        @relation(fields: [sucursalId], references: [id])
-  repartidor   Personal?       @relation("Repartidor", fields: [repartidorId], references: [id])
-  detalles     CompraDetalle[]
+  id              Int             @id @default(autoincrement())
+  clienteId       Int
+  sucursalId      Int
+  repartidorId    Int?
+  total           Float
+  tipo            String          @default("compra_web") // "compra_directa" | "compra_web"
+  status          String          @default("pendiente")
+  // Pago
+  metodoPago      String?         // "transferencia" | "pago_movil" | "efectivo_bs" | "efectivo_usd"
+  refPago         String?
+  // Entrega
+  direccionEntrega String?
+  coordenadasLat  Float?
+  coordenadasLng  Float?
+  distanciaKm     Float?
+  costoEnvio      Float?
+  fecha           DateTime        @default(now())
+  cliente         Cliente         @relation(fields: [clienteId], references: [id])
+  sucursal        Sucursal        @relation(fields: [sucursalId], references: [id])
+  repartidor      Personal?       @relation("Repartidor", fields: [repartidorId], references: [id])
+  detalles        CompraDetalle[]
+  chat            Chat?
 
   @@index([fecha])
   @@index([sucursalId])
@@ -255,6 +274,7 @@ model CompraDetalle {
   productoId Int
   cantidad   Int
   precioUnit Float
+  costoUnit  Float?
   compra     Compra   @relation(fields: [compraId], references: [id])
   producto   Producto @relation(fields: [productoId], references: [id])
 }
@@ -315,6 +335,19 @@ model OfertaExcepcion {
   @@id([ofertaId, productoId])
 }
 
+// --- SINERGIA DE CATEGORÍAS (CO-TENANCY MATRIX) ---
+model CategoriaSinergia {
+  id                Int      @id @default(autoincrement())
+  categoriaEmpresa  String   // Categoría de producto de la empresa (ej: "Ropa Deportiva")
+  categoriaTractora String   // Categoría de negocio complementario (ej: "Gimnasio")
+  peso              Float    @default(1.0) // 0.5=bajo, 1.0=medio, 2.0=alto
+  activo            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  @@unique([categoriaEmpresa, categoriaTractora])
+  @@index([categoriaEmpresa])
+}
+
 // --- INTELIGENCIA ARTIFICIAL ---
 model InformeAnalitico {
   id               Int      @id @default(autoincrement())
@@ -330,4 +363,34 @@ model InformeAnalitico {
   @@index([createdAt])
   @@index([tipoAnalisis])
   @@index([sucursalId])
+}
+
+// --- CHAT DELIVERY-CLIENTE ---
+model Chat {
+  id            Int      @id @default(autoincrement())
+  compraId      Int      @unique
+  repartidorId  Int
+  clienteId     Int
+  createdAt     DateTime @default(now())
+  compra        Compra   @relation(fields: [compraId], references: [id])
+  repartidor    Personal @relation(fields: [repartidorId], references: [id])
+  cliente       Cliente  @relation(fields: [clienteId], references: [id])
+  mensajes      Mensaje[]
+
+  @@index([compraId])
+  @@index([repartidorId])
+  @@index([clienteId])
+}
+
+model Mensaje {
+  id           Int      @id @default(autoincrement())
+  chatId       Int
+  emisorTipo   String   // "delivery" | "cliente"
+  emisorId     Int
+  contenido    String
+  createdAt    DateTime @default(now())
+  chat         Chat     @relation(fields: [chatId], references: [id])
+
+  @@index([chatId])
+  @@index([createdAt])
 }

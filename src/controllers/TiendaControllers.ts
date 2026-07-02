@@ -1,15 +1,19 @@
 import type { Request, Response, RequestHandler } from "express";
 import prisma from "../config/prisma.js";
+import { getExchangeRates, convertirABs } from "../utils/exchangeRate.js";
 
 export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
   try {
     console.log("[TiendaControllers] [GetTiendaProductos]");
-    const productos = await prisma.producto.findMany({
-      include: {
-        categoria: true,
-        inventarios: true,
-      },
-    });
+    const [productos, tasas] = await Promise.all([
+      prisma.producto.findMany({
+        include: {
+          categoria: true,
+          inventarios: true,
+        },
+      }),
+      getExchangeRates(),
+    ]);
     const mapped = productos.map((p) => {
       const stockTotal = p.inventarios.reduce((sum, i) => sum + i.stockActual, 0);
       return {
@@ -18,6 +22,8 @@ export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Res
         tipo: p.tipo,
         descripcion: p.descripcion,
         precioBase: p.precioBase,
+        moneda: p.moneda,
+        precioBs: convertirABs(p.precioBase, p.moneda, tasas),
         emailProveedor: p.emailProveedor,
         imagen: p.imagen,
         categoriaId: p.categoriaId,
@@ -25,7 +31,7 @@ export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Res
         stockTotal,
       };
     });
-    res.json({ data: mapped });
+    res.json({ data: mapped, tasas });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener productos" });
@@ -47,10 +53,13 @@ export const GetTiendaProductoById: RequestHandler = async (req: Request, res: R
   try {
     console.log("[TiendaControllers] [GetTiendaProductoById] params:", req.params);
     const numericId = Number(id);
-    const producto = await prisma.producto.findUnique({
-      where: { id: numericId },
-      include: { categoria: true, inventarios: { include: { sucursal: true } } },
-    });
+    const [producto, tasas] = await Promise.all([
+      prisma.producto.findUnique({
+        where: { id: numericId },
+        include: { categoria: true, inventarios: { include: { sucursal: true } } },
+      }),
+      getExchangeRates(),
+    ]);
     if (!producto) {
       res.status(404).json({ message: "Producto no encontrado" });
       return;
@@ -64,10 +73,21 @@ export const GetTiendaProductoById: RequestHandler = async (req: Request, res: R
     });
     const relacionadosMapped = relacionados.map((r) => ({
       ...r,
+      moneda: r.moneda,
+      precioBs: convertirABs(r.precioBase, r.moneda, tasas),
       stockTotal: r.inventarios.reduce((sum, i) => sum + i.stockActual, 0),
     }));
 
-    res.json({ data: { ...producto, stockTotal, relacionados: relacionadosMapped } });
+    res.json({
+      data: {
+        ...producto,
+        moneda: producto.moneda,
+        precioBs: convertirABs(producto.precioBase, producto.moneda, tasas),
+        stockTotal,
+        relacionados: relacionadosMapped,
+      },
+      tasas,
+    });
   } catch (error) {
     res.status(500).json({ message: "Error al obtener producto" });
   }

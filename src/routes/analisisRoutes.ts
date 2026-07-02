@@ -4,6 +4,7 @@ import {
   GenerarInformeDemanda,
   GenerarInformeRendimiento,
   GenerarInformeSucursal,
+  GenerarInformeExpansion,
   ListarInformes,
   GuardarPDF,
   ObtenerEstadisticas,
@@ -18,6 +19,7 @@ router.post("/patrones", verifyToken, aiLimiter, GenerarInformePatrones);
 router.post("/demanda", verifyToken, aiLimiter, GenerarInformeDemanda);
 router.post("/rendimiento", verifyToken, aiLimiter, GenerarInformeRendimiento);
 router.post("/sucursales", verifyToken, aiLimiter, GenerarInformeSucursal);
+router.post("/expansion", verifyToken, aiLimiter, GenerarInformeExpansion);
 router.post("/save-pdf", verifyToken, GuardarPDF);
 router.get("/informes", verifyToken, ListarInformes);
 

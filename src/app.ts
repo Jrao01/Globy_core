@@ -18,6 +18,7 @@ import tiendaRoutes from "./routes/tiendaRoutes.js";
 import analisisRoutes from "./routes/analisisRoutes.js";
 import ofertaRoutes from "./routes/ofertaRoutes.js";
 import conexionRoutes from "./routes/conexionRoutes.js";
+import chatRoutes from "./routes/chatRoutes.js";
 import { startBcvCron } from "./utils/BcvCron.js";
 import { geoMiddleware } from "./middleware/geoMiddleware.js";
 import { auditoriaMiddleware } from "./middleware/auditoriaMiddleware.js";
@@ -66,6 +67,7 @@ app.use("/tienda", tiendaRoutes);
 app.use("/analisis", analisisRoutes);
 app.use("/ofertas", ofertaRoutes);
 app.use("/conexion", conexionRoutes);
+app.use("/chat", chatRoutes);
 
 startBcvCron();
 

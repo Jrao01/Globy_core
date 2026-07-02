@@ -267,7 +267,7 @@ async function main() {
 
     const numDetalles = 1 + rand(0, 3);
     let total = 0;
-    const detalles: { productoId: number; cantidad: number; precioUnit: number }[] = [];
+    const detalles: { productoId: number; cantidad: number; precioUnit: number; costoUnit?: number }[] = [];
     const usedIds = new Set<number>();
     for (let d = 0; d < numDetalles; d++) {
       let prod;
@@ -276,7 +276,7 @@ async function main() {
       const cantidad = rand(1, 5);
       const precioUnit = prod.precioBase;
       total += cantidad * precioUnit;
-      detalles.push({ productoId: prod.id, cantidad, precioUnit });
+      detalles.push({ productoId: prod.id, cantidad, precioUnit, costoUnit: prod.costo ?? undefined });
     }
 
     await prisma.compra.create({

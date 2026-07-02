@@ -1,4 +1,5 @@
 import prisma from "../config/prisma.js";
+import { getExchangeRates, convertirABs } from "../utils/exchangeRate.js";
 
 export interface CreateOfertaInput {
   nombre: string;
@@ -110,14 +111,24 @@ export const eliminarOferta = async (id: number) => {
 /** Calcula el mejor descuento aplicable a un producto en una sucursal */
 /** Devuelve los precios con descuento de todos los productos para una sucursal (o mejores ofertas globales) */
 export async function calcularPreciosGlobales(sucursalId?: number) {
-  const productos = await prisma.producto.findMany({ include: { categoria: true } });
-  const resultado: Record<number, { precioOriginal: number; precioFinal: number; descuento: string | null; oferta: string | null }> = {};
+  const [productos, tasas] = await Promise.all([
+    prisma.producto.findMany({ include: { categoria: true } }),
+    getExchangeRates(),
+  ]);
+  const resultado: Record<number, { precioOriginal: number; precioFinal: number; precioOriginalBs: number; precioFinalBs: number; descuento: string | null; oferta: string | null }> = {};
 
   for (const p of productos) {
     const calc = sucursalId
       ? await calcularPrecioConDescuento(p.id, sucursalId)
       : await calcularPrecioConDescuento(p.id);
-    resultado[p.id] = calc;
+    resultado[p.id] = {
+      precioOriginal: calc.precioOriginal,
+      precioFinal: calc.precioFinal,
+      descuento: calc.descuento,
+      oferta: calc.oferta,
+      precioOriginalBs: convertirABs(calc.precioOriginal, p.moneda, tasas),
+      precioFinalBs: convertirABs(calc.precioFinal, p.moneda, tasas),
+    };
   }
 
   return resultado;

@@ -155,7 +155,7 @@ function renderPatrones(data: Record<string, any>): string {
     html += `<div class="section">
       <h2>Segmentación RFM</h2>
       <div class="stat-grid">
-        ${rfm.segmentos?.vip ? `<div class="stat-card"><div class="value">${rfm.segmentos.vip.cantidad || 0}</div><div class="label">VIP (Ticket: ${formatCurrency(rfm.segmentos.vip.ticketPromedio || 0)})</div></div>` : ""}
+        ${rfm.segmentos?.constante ? `<div class="stat-card"><div class="value">${rfm.segmentos.constante.cantidad || 0}</div><div class="label">Constante (Ticket: ${formatCurrency(rfm.segmentos.constante.ticketPromedio || 0)})</div></div>` : ""}
         ${rfm.segmentos?.leales ? `<div class="stat-card green"><div class="value">${rfm.segmentos.leales.cantidad || 0}</div><div class="label">Leales (Ticket: ${formatCurrency(rfm.segmentos.leales.ticketPromedio || 0)})</div></div>` : ""}
         ${rfm.segmentos?.riesgo ? `<div class="stat-card orange"><div class="value">${rfm.segmentos.riesgo.cantidad || 0}</div><div class="label">En Riesgo (Ticket: ${formatCurrency(rfm.segmentos.riesgo.ticketPromedio || 0)})</div></div>` : ""}
         ${rfm.segmentos?.inactivos ? `<div class="stat-card red"><div class="value">${rfm.segmentos.inactivos.cantidad || 0}</div><div class="label">Inactivos (Ticket: ${formatCurrency(rfm.segmentos.inactivos.ticketPromedio || 0)})</div></div>` : ""}
@@ -163,7 +163,7 @@ function renderPatrones(data: Record<string, any>): string {
       ${rfm.topClientes?.length > 0 ? `
       <h3>Top Clientes</h3>
       <table><thead><tr><th>Cliente</th><th>Compras</th><th>Total Gastado</th><th>Última Compra</th><th>Segmento</th></tr></thead><tbody>
-      ${rfm.topClientes.slice(0, 10).map((c: any) => `<tr><td>${c.nombre}</td><td>${c.compras}</td><td>${formatCurrency(c.totalGastado)}</td><td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString("es-VE") : "N/A"}</td><td><span class="badge badge-${c.segmento === "vip" ? "info" : c.segmento === "leales" ? "success" : "warning"}">${c.segmento}</span></td></tr>`).join("")}
+      ${rfm.topClientes.slice(0, 10).map((c: any) => `<tr><td>${c.nombre}</td><td>${c.compras}</td><td>${formatCurrency(c.totalGastado)}</td><td>${c.ultimaCompra ? new Date(c.ultimaCompra).toLocaleDateString("es-VE") : "N/A"}</td><td><span class="badge badge-${c.segmento === "constante" ? "info" : c.segmento === "leales" ? "success" : "warning"}">${c.segmento}</span></td></tr>`).join("")}
       </tbody></table>` : ""}
     </div>`;
   }

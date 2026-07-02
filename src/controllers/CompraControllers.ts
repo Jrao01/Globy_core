@@ -48,13 +48,19 @@ export const GetAllCompras: RequestHandler = async (req: AuthRequest, res: Respo
 export const CreateCompra: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     console.log("[CreateCompra] body recibido:", JSON.stringify(req.body, null, 2));
-    const { clienteId, sucursalId, items, tipo } = req.body;
+    const { clienteId, sucursalId, items, tipo, metodoPago, refPago, direccionEntrega, coordenadasLat, coordenadasLng, distanciaKm, costoEnvio } = req.body;
     if (!clienteId || !sucursalId || !Array.isArray(items)) {
       console.log("[CreateCompra] validación falló - datos:", { clienteId, sucursalId, items });
       res.status(400).json({ message: "clienteId, sucursalId e items son requeridos" });
       return;
     }
-    const compra = await createCompra(parseInt(clienteId), parseInt(sucursalId), items, tipo || "compra_web");
+    const compra = await createCompra(
+      parseInt(clienteId),
+      parseInt(sucursalId),
+      items,
+      tipo || "compra_web",
+      { metodoPago, refPago, direccionEntrega, coordenadasLat, coordenadasLng, distanciaKm, costoEnvio }
+    );
     res.status(201).json({ message: "Compra creada", data: compra });
   } catch (error: any) {
     if (error.message === "PRODUCT_NOT_FOUND") {

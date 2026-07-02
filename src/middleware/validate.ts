@@ -33,6 +33,7 @@ export const schemas = {
     tipo: z.string().min(1).max(100),
     descripcion: z.string().max(500).optional(),
     precioBase: z.number().positive(),
+    moneda: z.enum(["USD", "EUR"]).optional(),
     emailProveedor: z.string().email(),
     categoriaId: z.number().int().positive(),
   }),
@@ -46,6 +47,13 @@ export const schemas = {
       precioUnit: z.number().positive().optional(),
     })).min(1),
     tipo: z.enum(["compra_web", "compra_directa"]).optional(),
+    metodoPago: z.enum(["transferencia", "pago_movil", "efectivo_bs", "efectivo_usd"]).optional(),
+    refPago: z.string().max(50).optional(),
+    direccionEntrega: z.string().max(500).optional(),
+    coordenadasLat: z.number().optional(),
+    coordenadasLng: z.number().optional(),
+    distanciaKm: z.number().optional(),
+    costoEnvio: z.number().optional(),
   }),
 
   competitorSearch: z.object({
