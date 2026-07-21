@@ -6,9 +6,18 @@ export const RegistrarConexion: RequestHandler = async (req: Request, res: Respo
     const { clienteId, dispositivoId, latitud, longitud, dispositivo } = req.body;
     const ip = (req as any).clientIp || req.ip || "0.0.0.0";
 
+    let resolvedClienteId: number | null = null;
+    if (clienteId) {
+      const parsed = parseInt(clienteId);
+      if (!isNaN(parsed)) {
+        const exists = await prisma.cliente.findUnique({ where: { id: parsed }, select: { id: true } });
+        if (exists) resolvedClienteId = parsed;
+      }
+    }
+
     await prisma.conexion.create({
       data: {
-        clienteId: clienteId ? parseInt(clienteId) : null,
+        clienteId: resolvedClienteId,
         dispositivoId: dispositivoId || null,
         ip,
         latitud: parseFloat(latitud) || 0,

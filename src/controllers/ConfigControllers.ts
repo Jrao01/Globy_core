@@ -70,6 +70,25 @@ export const CrearSinergia: RequestHandler = async (req: Request, res: Response)
   }
 };
 
+export const ActualizarSinergia: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const { categoriaEmpresa, categoriaTractora, peso, activo } = req.body;
+    const data: any = {};
+    if (categoriaEmpresa !== undefined) data.categoriaEmpresa = categoriaEmpresa;
+    if (categoriaTractora !== undefined) data.categoriaTractora = categoriaTractora;
+    if (peso !== undefined) data.peso = peso;
+    if (activo !== undefined) data.activo = activo;
+    const sinergia = await prisma.categoriaSinergia.update({
+      where: { id: parseInt(id) },
+      data,
+    });
+    res.json({ data: sinergia });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const EliminarSinergia: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
@@ -115,5 +134,206 @@ export const SeedSinergiasDefault: RequestHandler = async (_req: Request, res: R
     res.json({ message: `${defaults.length} sinergias cargadas`, data: defaults.length });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+/* ═══════════════════════════════════════════
+   COEFICIENTES DE ESTACIONALIDAD
+   ═══════════════════════════════════════════ */
+
+export const ListarCoeficientes: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const coeficientes = await prisma.coeficienteFestividad.findMany({
+      orderBy: { mes: "asc" },
+    });
+    res.json({ data: coeficientes });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const ActualizarCoeficiente: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const { coeficienteConsumoMasivo, coeficienteTecnologia, coeficienteRopa, coeficienteRestaurantes } = req.body;
+    const personalId = (req as any).userId; // from auth middleware
+
+    // Calcular promedio de los 4 coeficientes
+    const promedio = (
+      (coeficienteConsumoMasivo || 0) +
+      (coeficienteTecnologia || 0) +
+      (coeficienteRopa || 0) +
+      (coeficienteRestaurantes || 0)
+    ) / 4;
+
+    const coeficiente = await prisma.coeficienteFestividad.update({
+      where: { id: parseInt(id) },
+      data: {
+        coeficienteConsumoMasivo: coeficienteConsumoMasivo ?? undefined,
+        coeficienteTecnologia: coeficienteTecnologia ?? undefined,
+        coeficienteRopa: coeficienteRopa ?? undefined,
+        coeficienteRestaurantes: coeficienteRestaurantes ?? undefined,
+        coeficientePromedio: Math.round(promedio * 100) / 100,
+        updatedBy: personalId ?? undefined,
+      },
+    });
+    res.json({ data: coeficiente });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ═══════════════════════════════════════════
+   CIUDADES DE VENEZUELA (POBLACIÓN)
+   ═══════════════════════════════════════════ */
+
+export const ListarCiudades: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { search, region } = req.query;
+    const where: any = {};
+    if (search) where.nombre = { contains: search as string };
+    if (region) where.region = { contains: region as string };
+
+    const ciudades = await prisma.ciudadPoblacion.findMany({
+      where,
+      orderBy: { poblacion: "desc" },
+      take: 50,
+    });
+    res.json({ data: ciudades });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const SyncCiudadesFromAPI: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const allCities: any[] = [];
+    let offset = 0;
+    const limit = 10;
+    let hasMore = true;
+
+    while (hasMore) {
+      const url = `https://geodb-free-service.wirefreethought.com/v1/geo/cities?countryIds=VE&types=CITY&limit=${limit}&offset=${offset}`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as any;
+      const cities = data.data || [];
+      allCities.push(...cities);
+      const hasNext = Array.isArray(data.links) && data.links.some((l: any) => l.rel === "next");
+      if (cities.length < limit || !hasNext) {
+        hasMore = false;
+      } else {
+        offset += limit;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    let count = 0;
+    for (const city of allCities) {
+      try {
+        await prisma.ciudadPoblacion.upsert({
+          where: { nombre_region: { nombre: city.name, region: city.region } },
+          create: {
+            nombre: city.name,
+            region: city.region,
+            poblacion: city.population,
+            latitud: city.latitude,
+            longitud: city.longitude,
+          },
+          update: { poblacion: city.population },
+        });
+        count++;
+      } catch {}
+    }
+
+    res.json({ message: `${count} ciudades sincronizadas`, data: { count, total: allCities.length } });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ═══════════════════════════════════════════
+   CONSULTAR CIUDAD ESPECÍFICA (GeoDB + Fallback)
+   ═══════════════════════════════════════════ */
+
+const FALLBACK_CIUDADES: Record<string, { nombre: string; region: string; poblacion: number; latitud: number; longitud: number }> = {
+  "san juan de los morros": {
+    nombre: "San Juan de los Morros",
+    region: "Guárico",
+    poblacion: 137329,
+    latitud: 9.9015,
+    longitud: -67.3543,
+  },
+};
+
+export const ConsultarCiudad: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const nombre = (req.query.nombre as string || "").trim();
+    if (!nombre) {
+      res.status(400).json({ message: "El parámetro 'nombre' es requerido" });
+      return;
+    }
+
+    // Buscar primero en la base de datos local
+    const local = await prisma.ciudadPoblacion.findFirst({
+      where: { nombre: { contains: nombre } },
+    });
+    if (local) {
+      res.json({ message: "Ciudad encontrada en base local", data: local, fuente: "local" });
+      return;
+    }
+
+    // Buscar en GeoDB API por prefijo de nombre
+    const encoded = encodeURIComponent(nombre);
+    const url = `https://geodb-free-service.wirefreethought.com/v1/geo/cities?namePrefix=${encoded}&countryIds=VE&types=CITY&limit=5`;
+    const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+
+    if (response.ok) {
+      const data = await response.json() as any;
+      const cities = data.data || [];
+      // Buscar coincidencia exacta (case-insensitive)
+      const match = cities.find((c: any) =>
+        c.name.toLowerCase() === nombre.toLowerCase() ||
+        c.name.toLowerCase().includes(nombre.toLowerCase())
+      );
+      if (match) {
+        const result = {
+          nombre: match.name,
+          region: match.region,
+          poblacion: match.population || 0,
+          latitud: match.latitude,
+          longitud: match.longitude,
+        };
+        // Guardar en DB para futuras consultas
+        await prisma.ciudadPoblacion.upsert({
+          where: { nombre_region: { nombre: result.nombre, region: result.region } },
+          create: result,
+          update: { poblacion: result.poblacion, latitud: result.latitud, longitud: result.longitud },
+        });
+        res.json({ message: "Ciudad encontrada en GeoDB", data: result, fuente: "geodb" });
+        return;
+      }
+    }
+
+    // Fallback local por nombre normalizado
+    const key = nombre.toLowerCase().trim();
+    const fallback = FALLBACK_CIUDADES[key];
+    if (fallback) {
+      // Guardar en DB
+      await prisma.ciudadPoblacion.upsert({
+        where: { nombre_region: { nombre: fallback.nombre, region: fallback.region } },
+        create: fallback,
+        update: { poblacion: fallback.poblacion },
+      });
+      res.json({ message: "Ciudad encontrada en datos locales", data: fallback, fuente: "fallback" });
+      return;
+    }
+
+    res.status(404).json({ message: `Ciudad '${nombre}' no encontrada ni en GeoDB ni en datos locales` });
+  } catch (error: any) {
+    console.error("[ConsultarCiudad] Error:", error);
+    res.status(500).json({ message: error.message || "Error interno al consultar ciudad" });
   }
 };

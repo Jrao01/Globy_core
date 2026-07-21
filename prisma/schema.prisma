@@ -20,6 +20,12 @@ model EmpresaConfig {
   // Color primario personalizado (hex, ej: #5713be)
   colorPrimario   String   @default("#5713be")
 
+  // Datos de Pago Móvil
+  pagoMovilBanco        String?
+  pagoMovilCedulaTipo   String?
+  pagoMovilCedula       String?
+  pagoMovilTelefono     String?
+
   // Banner de la tienda pública
   bannerImg       String?
   bannerTitle     String?
@@ -41,6 +47,7 @@ model EmpresaConfig {
 // --- GESTIÓN DE USUARIOS Y ACCESO ---
 model Cliente {
   id           Int          @id @default(autoincrement())
+  googleId     String?      @unique
   nombre       String
   apellido     String
   cedula       String       @unique
@@ -207,14 +214,16 @@ model GeoIP {
 
 // --- AUDITORÍA DE ACCESOS (todos los usuarios) ---
 model Auditoria {
-  id         Int      @id @default(autoincrement())
-  ip         String
-  ruta       String
-  metodo     String
-  clienteId  Int?
-  geoIPId    Int?
-  geoIP      GeoIP?   @relation(fields: [geoIPId], references: [id])
-  createdAt  DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  ip            String
+  ruta          String
+  metodo        String
+  clienteId     Int?
+  personalId    Int?
+  dispositivoId String?
+  geoIPId       Int?
+  geoIP         GeoIP?   @relation(fields: [geoIPId], references: [id])
+  createdAt     DateTime @default(now())
 
   @@index([createdAt])
   @@index([ip])
@@ -254,18 +263,36 @@ model Compra {
   coordenadasLng  Float?
   distanciaKm     Float?
   costoEnvio      Float?
+  // Tracking del delivery
+  repartidorCoordenadasLat Float?
+  repartidorCoordenadasLng Float?
+  ultimaActualizacionUbicacion DateTime?
+  tasaCambio      Float?
   fecha           DateTime        @default(now())
   cliente         Cliente         @relation(fields: [clienteId], references: [id])
   sucursal        Sucursal        @relation(fields: [sucursalId], references: [id])
   repartidor      Personal?       @relation("Repartidor", fields: [repartidorId], references: [id])
   detalles        CompraDetalle[]
   chat            Chat?
+  ubicacionesLog  UbicacionLog[]
 
   @@index([fecha])
   @@index([sucursalId])
   @@index([clienteId])
   @@index([status])
   @@index([repartidorId])
+}
+
+model UbicacionLog {
+  id        Int      @id @default(autoincrement())
+  compraId  Int
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+  compra    Compra   @relation(fields: [compraId], references: [id])
+
+  @@index([compraId])
+  @@index([createdAt])
 }
 
 model CompraDetalle {
@@ -335,6 +362,32 @@ model OfertaExcepcion {
   @@id([ofertaId, productoId])
 }
 
+// --- POBLACIÓN DE CIUDADES ---
+model CiudadPoblacion {
+  id        Int    @id @default(autoincrement())
+  nombre    String
+  region    String // Estado
+  poblacion Int
+  latitud   Float
+  longitud  Float
+
+  @@unique([nombre, region])
+  @@index([nombre])
+}
+
+// --- COEFICIENTES DE ESTACIONALIDAD POR MES ---
+model CoeficienteFestividad {
+  id                        Int   @id @default(autoincrement())
+  mes                       Int   @unique // 1-12
+  coeficienteConsumoMasivo  Float
+  coeficienteTecnologia     Float
+  coeficienteRopa           Float
+  coeficienteRestaurantes   Float
+  coeficientePromedio       Float // promedio de los 4 anteriores
+  updatedAt                 DateTime @updatedAt
+  updatedBy                 Int? // personalId del super admin
+}
+
 // --- SINERGIA DE CATEGORÍAS (CO-TENANCY MATRIX) ---
 model CategoriaSinergia {
   id                Int      @id @default(autoincrement())
@@ -356,13 +409,15 @@ model InformeAnalitico {
   rangoInicio      DateTime
   rangoFin         DateTime
   dataJson         Json     // Resultados del cruce de datos
-  insightIA        String?  
+  insightIA        Json?    
+  cacheKey         String?   // Clave para cachear insights por parámetros
   createdAt        DateTime @default(now())
   sucursal         Sucursal? @relation(fields: [sucursalId], references: [id])
 
   @@index([createdAt])
   @@index([tipoAnalisis])
   @@index([sucursalId])
+  @@index([cacheKey])
 }
 
 // --- CHAT DELIVERY-CLIENTE ---

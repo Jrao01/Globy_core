@@ -11,6 +11,7 @@ import {
   getClienteStats,
   getClienteConexiones,
 } from "../services/ClienteService.js";
+import { googleLogin } from "../services/GoogleAuthService.js";
 
 export const ClienteRegister: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -148,6 +149,33 @@ export const GetClienteStats: RequestHandler = async (req: Request, res: Respons
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener estadísticas" });
+  }
+};
+
+export const GoogleAuth: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  const { credential } = req.body;
+  if (!credential) {
+    res.status(400).json({ message: "Credencial de Google es requerida" });
+    return;
+  }
+  try {
+    const result = await googleLogin(credential);
+    res.json({
+      message: result.isNew ? "Cuenta creada con Google" : "Inicio de sesión con Google exitoso",
+      data: result.user,
+      token: result.token,
+    });
+  } catch (error: any) {
+    if (error.message === "GOOGLE_OAUTH_NOT_CONFIGURED") {
+      res.status(501).json({ message: "Google OAuth no está configurado en el servidor" });
+      return;
+    }
+    if (error.message === "GOOGLE_TOKEN_INVALID") {
+      res.status(401).json({ message: "Token de Google inválido" });
+      return;
+    }
+    console.error(error);
+    res.status(500).json({ message: "Error al autenticar con Google" });
   }
 };
 

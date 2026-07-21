@@ -3,6 +3,8 @@ import type { AuthRequest } from "../types/index.js";
 import prisma from "../config/prisma.js";
 import fs from "fs";
 import path from "path";
+import { createRequire } from "node:module";
+const _require = createRequire(import.meta.url);
 import {
   generarInsightPatrones,
   generarInsightDemanda,
@@ -10,6 +12,8 @@ import {
   generarInsightSucursal,
   generarInsightSucursalIndividual,
   generarInsightExpansion,
+  generarInsightEquilibrio,
+  generarInsightCanibalizacion,
 } from "../services/llmService.js";
 import { haversineDistanceKm } from "../utils/geo.js";
 import { getDistanciaTiempo } from "../services/RoutingService.js";
@@ -31,6 +35,288 @@ function diasEntre(a: Date, b: Date) {
 
 function factorPeriodo(inicio: Date, fin: Date) {
   return diasEntre(inicio, fin) / 30;
+}
+
+/* ═══════════════ CACHE HELPERS ═══════════════ */
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
+
+function generarClaveCache(tipo: string, params: Record<string, any>): string {
+  const sortedKeys = Object.keys(params).sort();
+  const parts = sortedKeys
+    .map((k) => {
+      const v = params[k];
+      return v !== undefined && v !== null ? `${k}=${v}` : "";
+    })
+    .filter(Boolean);
+  return `${tipo}|${parts.join("|")}`;
+}
+
+async function buscarCache(tipo: string, cacheKey: string): Promise<any | null> {
+  const desde = new Date(Date.now() - CACHE_TTL_MS);
+  const cached = await prisma.informeAnalitico.findFirst({
+    where: {
+      tipoAnalisis: tipo,
+      cacheKey: cacheKey,
+      createdAt: { gte: desde },
+      insightIA: { not: null },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return cached;
+}
+
+function extractJsonValue(str: string, key: string): string | null {
+  const idx = str.indexOf(`"${key}"`);
+  if (idx < 0) return null;
+  const after = str.slice(idx + key.length + 2);
+  const colonIdx = after.indexOf(":");
+  if (colonIdx < 0) return null;
+  let i = colonIdx + 1;
+  while (i < after.length && after[i] === " ") i++;
+  if (after[i] !== "{") return null;
+  let depth = 0; let inStr = false;
+  for (let j = i; j < after.length; j++) {
+    const ch = after[j];
+    if (inStr) { if (ch === '"' && after[j - 1] !== "\\") inStr = false; continue; }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === "{") depth++;
+    if (ch === "}") { depth--; if (depth === 0) return after.slice(i, j + 1); }
+  }
+  return null;
+}
+
+function sanitizeControlChars(str: string): string {
+  let out = ""; let inStr = false; let escape = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (escape) { out += ch; escape = false; continue; }
+    if (ch === "\\" && inStr) { out += ch; escape = true; continue; }
+    if (inStr) {
+      if (ch === "\n") { out += "\\n"; }
+      else if (ch === "\r") { out += "\\r"; }
+      else if (ch === "\t") { out += "\\t"; }
+      else if (ch.charCodeAt(0) < 32) { /* skip other control chars */ }
+      else { out += ch; }
+    } else {
+      if (ch === '"') inStr = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function stripMarkdown(str: string): string {
+  return str.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*(.+?)\*/g, "$1").replace(/`(.+?)`/g, "$1");
+}
+
+function extractNumber(val: any): number | null {
+  if (typeof val === "number") return val;
+  if (typeof val === "string") {
+    const m = val.replace(/[.,](?=\d{3})/g, "").match(/(\d+(?:\.\d+)?)/);
+    return m ? parseFloat(m[1]) : null;
+  }
+  return null;
+}
+
+function extractKeyValuePair(raw: string, key: string): string | null {
+  const idx = raw.indexOf(`"${key}"`);
+  if (idx < 0) return null;
+  const after = raw.slice(idx + key.length + 2);
+  const colonIdx = after.indexOf(":");
+  if (colonIdx < 0) return null;
+  let i = colonIdx + 1;
+  while (i < after.length && after[i] === " ") i++;
+  if (after[i] !== '"') return null;
+  let out = ""; let escape = false;
+  for (let j = i + 1; j < after.length; j++) {
+    const ch = after[j];
+    if (escape) { out += ch; escape = false; continue; }
+    if (ch === "\\") { out += ch; escape = true; continue; }
+    if (ch === '"') break;
+    out += ch;
+  }
+  return out;
+}
+
+function tryParseWithError(str: string): { result: any; error?: string } {
+  try {
+    const p = JSON.parse(str);
+    if (p && typeof p === "object") {
+      if (p.formatoSalida) return { result: { ...p.formatoSalida, _meta: { rol: p.rol, instrucciones: p.instrucciones } } };
+      return { result: p };
+    }
+  } catch (e: any) {
+    return { result: null, error: e?.message?.slice(0, 120) };
+  }
+  return { result: null };
+}
+
+function tryParseNormalize(str: string): any | null {
+  const r = tryParseWithError(str);
+  return r.result;
+}
+
+let _j5: any = null;
+function tryJ5Parse(str: string): any | null {
+  try {
+    if (!_j5) _j5 = _require("json5");
+    const p = _j5.parse(str);
+    if (p && typeof p === "object") {
+      if (p.formatoSalida) return { ...p.formatoSalida, _meta: { rol: p.rol, instrucciones: p.instrucciones } };
+      return p;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function normalizeInsight(obj: any, tipo: string): any {
+  if (!obj || typeof obj !== "object") return { tipo, resumen: "No se pudo generar el análisis.", error: true };
+
+  // If the object has a single key resembling "formatoSalida" (possibly with % or other chars),
+  // unwrap it so we normalize the inner content instead.
+  const keys = Object.keys(obj);
+  if (keys.length === 1) {
+    const key = keys[0];
+    const cleanKey = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    if (cleanKey === "formatosalida" || cleanKey === "formatoSalida") {
+      obj = obj[key];
+      if (!obj || typeof obj !== "object") {
+        return { tipo, resumen: "No se pudo generar el análisis.", error: true };
+      }
+    }
+  }
+
+  // Strip markdown from all string values recursively
+  function strip(obj: any): any {
+    if (typeof obj === "string") return stripMarkdown(obj);
+    if (Array.isArray(obj)) return obj.map(strip);
+    if (obj && typeof obj === "object") {
+      const out: any = {};
+      for (const [k, v] of Object.entries(obj)) out[k] = strip(v);
+      return out;
+    }
+    return obj;
+  }
+  obj = strip(obj);
+
+  // Extract numbers from string fields where numbers are expected
+  if (obj.pronostico?.valorEstimado != null) {
+    const n = extractNumber(obj.pronostico.valorEstimado);
+    if (n != null) obj.pronostico.valorEstimado = n;
+  }
+  if (obj.pronostico?.ajustePorcentual != null) {
+    const n = extractNumber(obj.pronostico.ajustePorcentual);
+    if (n != null) obj.pronostico.ajustePorcentual = n;
+  }
+  if (obj.pronostico?.variacionInteranual?.porcentaje != null) {
+    const n = extractNumber(obj.pronostico.variacionInteranual.porcentaje);
+    if (n != null) obj.pronostico.variacionInteranual.porcentaje = n;
+  }
+
+  // Ensure resumen exists
+  if (!obj.resumen) {
+    if (obj.pronostico?.interpretacion) obj.resumen = obj.pronostico.interpretacion;
+    else obj.resumen = "Análisis generado. Ver secciones inferiores para detalles.";
+  }
+
+  // Tipo-specific normalization
+  if (tipo === "expansion") {
+    // Map riesgos → alertas
+    if (Array.isArray(obj.riesgos) && obj.riesgos.length > 0 && (!obj.alertas || obj.alertas.length === 0)) {
+      obj.alertas = obj.riesgos.map((r: any) => ({
+        tipo: r.probabilidad || "media",
+        mensaje: r.riesgo || "Riesgo identificado",
+        severidad: r.probabilidad === "alta" ? "alta" : r.probabilidad === "baja" ? "media" : "media",
+        dato: r.probabilidad ? `Probabilidad: ${r.probabilidad}` : undefined,
+      }));
+    }
+    // Map proximosPasos → recomendaciones
+    if (Array.isArray(obj.proximosPasos) && obj.proximosPasos.length > 0 && (!obj.recomendaciones || obj.recomendaciones.length === 0)) {
+      obj.recomendaciones = obj.proximosPasos.map((p: any) => ({
+        accion: p.paso || "Pendiente",
+        datoClave: p.prioridad ? `Prioridad: ${p.prioridad}` : undefined,
+        prioridad: p.prioridad || "media",
+      }));
+    }
+    // Map recomendacionFinal → resumen si no hay resumen
+    if (!obj.resumen && obj.recomendacionFinal?.justificacion) {
+      obj.resumen = `${obj.recomendacionFinal.decision || "EVALUAR"}: ${obj.recomendacionFinal.justificacion}`;
+    }
+  }
+
+  // Ensure arrays exist
+  if (!obj.recomendaciones) obj.recomendaciones = [];
+  if (!obj.alertas) obj.alertas = [];
+
+  // Ensure tipo exists
+  if (!obj.tipo) obj.tipo = tipo;
+
+  return obj;
+}
+
+function parseInsightJson(raw: string, tipo: string): any {
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?\s*```\s*$/i, "").trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (jsonMatch) cleaned = jsonMatch[0];
+
+  let lastError = "";
+
+  // Attempt 1: direct parse
+  let { result, error } = tryParseWithError(cleaned);
+  if (result) return normalizeInsight(result, tipo); else if (error) lastError = error;
+
+  // Attempt 2: extract formatoSalida directly
+  let inner = extractJsonValue(cleaned, "formatoSalida");
+  if (inner) {
+    ({ result, error } = tryParseWithError(inner));
+    if (result) return normalizeInsight(result, tipo); else if (error) lastError = error;
+  }
+
+  // Attempt 3: sanitize control chars & trailing commas
+  let sanitized = sanitizeControlChars(cleaned).replace(/,(\s*[}\]])/g, "$1");
+  ({ result, error } = tryParseWithError(sanitized));
+  if (result) return normalizeInsight(result, tipo); else if (error) lastError = error;
+
+  // Attempt 4: extract formatoSalida from sanitized
+  inner = extractJsonValue(sanitized, "formatoSalida");
+  if (inner) {
+    ({ result, error } = tryParseWithError(inner));
+    if (result) return normalizeInsight(result, tipo); else if (error) lastError = error;
+
+    // Attempt 5: sanitize the inner content too
+    let innerSan = sanitizeControlChars(inner).replace(/,(\s*[}\]])/g, "$1");
+    ({ result, error } = tryParseWithError(innerSan));
+    if (result) return normalizeInsight(result, tipo); else if (error) lastError = error;
+  }
+
+  // Attempt 6: try lenient JSON5 parser on everything
+  result = tryJ5Parse(cleaned) || tryJ5Parse(sanitized);
+  if (result) return normalizeInsight(result, tipo);
+  if (inner) {
+    result = tryJ5Parse(inner) || tryJ5Parse(sanitizeControlChars(inner).replace(/,(\s*[}\]])/g, "$1"));
+    if (result) return normalizeInsight(result, tipo);
+  }
+
+  // Attempt 7: all structured attempts failed — use cleaned full text as resumen
+  const cleanText = raw
+    .trim()
+    .replace(/^```(?:json)?\s*\n?/i, "")
+    .replace(/\n?\s*```\s*$/i, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/([.!?])\s+/g, "$1\n\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (cleanText) {
+    console.log(`   ✅ Texto narrativo: usando ${cleanText.length} chars como resumen`);
+    return normalizeInsight({ tipo, resumen: cleanText }, tipo);
+  }
+
+  console.warn(`⚠️  Insight para ${tipo} vacio tras todos los intentos: ${lastError}`);
+  return { tipo, resumen: "No se pudo generar el analisis.", error: true };
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -88,18 +374,31 @@ function calcularVariacionInteranual(ventasPorMes: { mes: string; promedio: numb
   return round2(((actual.promedio - pasado.promedio) / pasado.promedio) * 100);
 }
 
-function esFechaFestiva(mes: string): { festivo: string; ajuste: number } | null {
-  const festividades: Record<string, { nombre: string; ajuste: number }> = {
-    "12": { nombre: "Navidad / Fin de año", ajuste: 1.3 },
-    "11": { nombre: "Black Friday / Navidad temprana", ajuste: 1.15 },
-    "01": { nombre: "Año Nuevo / Rebajas", ajuste: 0.85 },
-    "02": { nombre: "San Valentín", ajuste: 1.1 },
-    "07": { nombre: "Vacaciones escolares", ajuste: 0.95 },
-    "08": { nombre: "Vacaciones escolares", ajuste: 0.95 },
-  };
-  const mesNum = mes.split("-")[1] ?? "";
-  const info = festividades[mesNum];
-  return info ? { festivo: info.nombre, ajuste: info.ajuste } : null;
+const MES_NOMBRES = [
+  "", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
+
+async function esFechaFestiva(mes: string): Promise<{ festivo: string; ajuste: number } | null> {
+  const mesNum = parseInt(mes.split("-")[1] ?? "0");
+  if (mesNum < 1 || mesNum > 12) return null;
+  const coef = await prisma.coeficienteFestividad.findUnique({ where: { mes: mesNum } });
+  if (!coef) return null;
+  return { festivo: `Estacionalidad ${MES_NOMBRES[mesNum]}`, ajuste: coef.coeficientePromedio };
+}
+
+async function esFechaFestivaPorCategoria(mes: string, categoria?: string): Promise<{ festivo: string; ajuste: number } | null> {
+  const mesNum = parseInt(mes.split("-")[1] ?? "0");
+  if (mesNum < 1 || mesNum > 12) return null;
+  const coef = await prisma.coeficienteFestividad.findUnique({ where: { mes: mesNum } });
+  if (!coef) return null;
+  let ajuste = coef.coeficientePromedio;
+  const catLower = (categoria || "").toLowerCase();
+  if (catLower.includes("electr") || catLower.includes("tecnol") || catLower.includes("telefon")) ajuste = coef.coeficienteTecnologia;
+  else if (catLower.includes("ropa") || catLower.includes("calzado") || catLower.includes("vestim")) ajuste = coef.coeficienteRopa;
+  else if (catLower.includes("restaurant") || catLower.includes("comida") || catLower.includes("entreten")) ajuste = coef.coeficienteRestaurantes;
+  else if (catLower.includes("aliment") || catLower.includes("supermerc") || catLower.includes("consumo")) ajuste = coef.coeficienteConsumoMasivo;
+  return { festivo: `Estacionalidad ${MES_NOMBRES[mesNum]}`, ajuste };
 }
 
 /* ═══════════════════════════════════════════
@@ -119,7 +418,15 @@ export const GenerarInformePatrones: RequestHandler = async (req: AuthRequest, r
     };
     if (sucursalId) where.sucursalId = sucursalId;
 
-    const [compras, comprasConDetalles, clientes] = await Promise.all([
+    // Rango extendido para comparación interanual (inicia 12 meses antes)
+    const inicioExtendido = new Date(inicio.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const whereExtendido: any = {
+      fecha: { gte: inicioExtendido, lte: fin },
+      status: { not: "cancelado" },
+    };
+    if (sucursalId) whereExtendido.sucursalId = sucursalId;
+
+    const [compras, comprasConDetalles, clientes, comprasExtendidas] = await Promise.all([
       prisma.compra.findMany({
         where,
         select: { id: true, total: true, fecha: true, clienteId: true, sucursalId: true, sucursal: { select: { nombre: true } } },
@@ -133,6 +440,12 @@ export const GenerarInformePatrones: RequestHandler = async (req: AuthRequest, r
         },
       }),
       prisma.cliente.findMany({ select: { id: true, nombre: true, apellido: true, createdAt: true } }),
+      // Compras extendidas para comparación interanual
+      prisma.compra.findMany({
+        where: whereExtendido,
+        select: { total: true, fecha: true },
+        orderBy: { fecha: "asc" },
+      }),
     ]);
 
     // --- Descriptiva ---
@@ -274,8 +587,21 @@ export const GenerarInformePatrones: RequestHandler = async (req: AuthRequest, r
       const sig = new Date(y, m, 1);
       return { mes: sig.toISOString().slice(0, 7), promedio: holt.forecast };
     })();
-    const variacionInteranual = calcularVariacionInteranual(ventasPorMes, mesSiguiente.mes);
-    const festividad = esFechaFestiva(mesSiguiente.mes);
+
+    // Construir ventasPorMes extendido para comparación interanual
+    const ventasMesExtendido: Record<string, { total: number; count: number }> = {};
+    comprasExtendidas.forEach((c) => {
+      const mes = c.fecha.toISOString().slice(0, 7);
+      if (!ventasMesExtendido[mes]) ventasMesExtendido[mes] = { total: 0, count: 0 };
+      ventasMesExtendido[mes].total += c.total;
+      ventasMesExtendido[mes].count += 1;
+    });
+    const ventasPorMesExtendido = Object.entries(ventasMesExtendido)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([mes, v]) => ({ mes, promedio: v.count > 0 ? round2(v.total / v.count) : 0 }));
+
+    const variacionInteranual = calcularVariacionInteranual(ventasPorMesExtendido, mesSiguiente.mes);
+    const festividad = await esFechaFestiva(mesSiguiente.mes);
     const variacionFinal = variacionInteranual ?? (festividad ? (festividad.ajuste - 1) * 100 : 0);
     const ajusteFestivo = festividad ? festividad.ajuste : 1;
     const forecastAjustado = round2(holt.forecast * ajusteFestivo);
@@ -352,16 +678,19 @@ export const GenerarInformePatrones: RequestHandler = async (req: AuthRequest, r
       alertasCount: { churn: alertas.filter((a) => a.tipo === "churn").length },
     };
 
+    const cacheKey = generarClaveCache("patrones", { sucursalId: sucursalId || "todas", rangoInicio, rangoFin });
+
     const insight = await generarInsightPatrones(dataJsonIA);
 
-    const informe = await prisma.informeAnalitico.create({
+    let informe = await prisma.informeAnalitico.create({
       data: {
         tipoAnalisis: "patrones",
         sucursalId: sucursalId || null,
         rangoInicio: inicio,
         rangoFin: fin,
         dataJson: dataJsonCompleto as any,
-        insightIA: insight,
+        insightIA: parseInsightJson(insight, "patrones"),
+        cacheKey,
       },
     });
 
@@ -410,12 +739,34 @@ export const GenerarInformeDemanda: RequestHandler = async (req: AuthRequest, re
     const zonas = Object.values(zonaMap).map((z) => ({ ...z, clientesUnicos: z.clientesUnicos.size })).sort((a, b) => b.visitas - a.visitas);
 
     // --- Zonas sin sucursal ---
-    const zonasSinSucursal = zonas.filter((z) => {
+    const zonasSinSucursalRaw = zonas.filter((z) => {
       return !sucursales.some((s) => {
         const dist = haversineDistanceKm(s.coordenadasLat, s.coordenadasLng, z.lat, z.lng);
         return dist < 5;
       });
     }).slice(0, 10);
+
+    // Enriquecer top 10 con OSRM: tiempo de conducción a la sucursal más cercana
+    const zonasSinSucursal = await Promise.all(
+      zonasSinSucursalRaw.map(async (z) => {
+        let mejorDist = Infinity;
+        let mejorTiempo = 0;
+        for (const s of sucursales) {
+          try {
+            const ruta = await getDistanciaTiempo(s.coordenadasLat, s.coordenadasLng, z.lat, z.lng, 60);
+            if (ruta.duracionMinutos < mejorTiempo || mejorTiempo === 0) {
+              mejorTiempo = ruta.duracionMinutos;
+              mejorDist = ruta.distanciaKm;
+            }
+          } catch {}
+        }
+        return {
+          ...z,
+          distanciaKmOSRM: round2(mejorDist),
+          duracionMinutosOSRM: round2(mejorTiempo),
+        };
+      })
+    );
 
     // --- Competidores por zona ---
     const competidoresPorZona: Record<string, { count: number; ratingPromedio: number }> = {};
@@ -465,19 +816,29 @@ export const GenerarInformeDemanda: RequestHandler = async (req: AuthRequest, re
       resumenSucursales: { cantidad: sucursalesData.length, top3Ventas },
       cobertura: { porcentaje: cobertura, clientesFuera: totalClientesConexion - clientesConSucursalCerca.size },
       competidoresResumen: { totalZonas: Object.keys(competidoresPorZona).length, zonasSaturadas },
-      zonasSinSucursalTop3: zonasSinSucursal.slice(0, 3).map((z) => ({ lat: z.lat, lng: z.lng, visitas: z.visitas })),
+      zonasSinSucursalTop3: zonasSinSucursal.slice(0, 3).map((z) => ({
+        lat: z.lat,
+        lng: z.lng,
+        visitas: z.visitas,
+        clientesUnicos: z.clientesUnicos,
+        distanciaKmOSRM: z.distanciaKmOSRM,
+        duracionMinutosOSRM: z.duracionMinutosOSRM,
+      })),
     };
+
+    const cacheKey = generarClaveCache("demanda_geo", { sucursalId: sucursalId || "todas", rangoInicio, rangoFin });
 
     const insight = await generarInsightDemanda(dataJsonIA);
 
-    const informe = await prisma.informeAnalitico.create({
+    let informe = await prisma.informeAnalitico.create({
       data: {
         tipoAnalisis: "demanda_geo",
         sucursalId: sucursalId || null,
         rangoInicio: inicio,
         rangoFin: fin,
         dataJson: dataJsonCompleto as any,
-        insightIA: insight,
+        insightIA: parseInsightJson(insight, "demanda_geo"),
+        cacheKey,
       },
     });
 
@@ -709,16 +1070,19 @@ export const GenerarInformeRendimiento: RequestHandler = async (req: AuthRequest
       },
     };
 
+    const cacheKey = generarClaveCache("rendimiento", { sucursalId: sucursalId || "todas", rangoInicio, rangoFin });
+
     const insight = await generarInsightRendimiento(dataJsonIA);
 
-    const informe = await prisma.informeAnalitico.create({
+    let informe = await prisma.informeAnalitico.create({
       data: {
         tipoAnalisis: "rendimiento",
         sucursalId: sucursalId || null,
         rangoInicio: inicio,
         rangoFin: fin,
         dataJson: dataJsonCompleto as any,
-        insightIA: insight,
+        insightIA: parseInsightJson(insight, "rendimiento"),
+        cacheKey,
       },
     });
 
@@ -920,10 +1284,12 @@ export const GenerarInformeSucursal: RequestHandler = async (req: AuthRequest, r
         clientesResumen: { totalUnicos, tasaRecurrencia: `${tasaRecurrencia}%`, clvPromedio: `$${clvPromedio}`, constante: segmentos.constante.length, leales: segmentos.leales.length, riesgo: segmentos.riesgo.length, inactivos: segmentos.inactivos.length },
       };
 
+      const cacheKey = generarClaveCache("sucursal_individual", { sucursalId, rangoInicio, rangoFin });
+
       const insight = await generarInsightSucursalIndividual(dataJsonIA);
 
-      const informe = await prisma.informeAnalitico.create({
-        data: { tipoAnalisis: "sucursal", sucursalId, rangoInicio: inicio, rangoFin: fin, dataJson: dataJsonCompleto as any, insightIA: insight },
+      let informe = await prisma.informeAnalitico.create({
+        data: { tipoAnalisis: "sucursal", sucursalId, rangoInicio: inicio, rangoFin: fin, dataJson: dataJsonCompleto as any, insightIA: parseInsightJson(insight, "sucursal"), cacheKey },
       });
       res.json({ message: "Informe generado", data: informe });
       return;
@@ -1030,16 +1396,19 @@ export const GenerarInformeSucursal: RequestHandler = async (req: AuthRequest, r
       },
     };
 
+    const cacheKey = generarClaveCache("sucursal_comparativo", { rangoInicio, rangoFin });
+
     const insight = await generarInsightSucursal(dataJsonIA);
 
-    const informe = await prisma.informeAnalitico.create({
+    let informe = await prisma.informeAnalitico.create({
       data: {
         tipoAnalisis: "sucursal",
         sucursalId: null,
         rangoInicio: inicio,
         rangoFin: fin,
         dataJson: dataJsonCompleto as any,
-        insightIA: insight,
+        insightIA: parseInsightJson(insight, "sucursal"),
+        cacheKey,
       },
     });
 
@@ -1051,13 +1420,206 @@ export const GenerarInformeSucursal: RequestHandler = async (req: AuthRequest, r
 };
 
 /* ═══════════════════════════════════════════
-   5. ANÁLISIS DE EXPANSIÓN
+   5. PUNTO DE EQUILIBRIO
+   ═══════════════════════════════════════════ */
+
+export const GenerarInformeEquilibrio: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    console.log("[AnalisisControllers] [GenerarInformeEquilibrio] body:", JSON.stringify(req.body, null, 2));
+    const { sucursalId, rangoInicio, rangoFin, alquiler, costosPersonal, costosServicios, margenBrutoEstimado } = req.body;
+    if (alquiler == null || costosPersonal == null || costosServicios == null) {
+      res.status(400).json({ message: "alquiler, costosPersonal y costosServicios son requeridos" });
+      return;
+    }
+    if (sucursalId) {
+      const sucursalExiste = await prisma.sucursal.findUnique({ where: { id: sucursalId } });
+      if (!sucursalExiste) {
+        res.status(400).json({ message: `La sucursal con id ${sucursalId} no existe` });
+        return;
+      }
+    }
+    const inicio = rangoInicio ? new Date(rangoInicio) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const fin = rangoFin ? new Date(rangoFin) : new Date();
+
+    // Margen bruto promedio histórico
+    const whereSuc = sucursalId ? { sucursalId } : {};
+    const comprasHist = await prisma.compra.findMany({
+      where: { fecha: { gte: inicio, lte: fin }, status: { not: "cancelado" }, ...whereSuc },
+      include: { detalles: true },
+    });
+
+    const cogsTotal = comprasHist.reduce((sum, c) =>
+      sum + c.detalles.reduce((s, d) => s + ((d.costoUnit ?? 0) || 0) * d.cantidad, 0), 0);
+    const revenueHist = comprasHist.reduce((s, c) => s + c.total, 0);
+    const margenBrutoPct = margenBrutoEstimado
+      ? round2(margenBrutoEstimado)
+      : revenueHist > 0 ? round2(((revenueHist - cogsTotal) / revenueHist) * 100) : 30;
+
+    // Costos fijos mensuales
+    const costosFijosMensuales = (alquiler || 0) + (costosPersonal || 0) + (costosServicios || 0);
+    const puntoEquilibrioMensual = margenBrutoPct > 0 ? round2((costosFijosMensuales / (margenBrutoPct / 100))) : 0;
+
+    // Forecast simple: media de últimos 3 meses
+    const vpm: Record<string, number> = {};
+    comprasHist.forEach((c) => { const m = c.fecha.toISOString().slice(0, 7); vpm[m] = (vpm[m] || 0) + c.total; });
+    const mesesVentas = Object.entries(vpm).sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v);
+    const ultimos3 = mesesVentas.slice(-3);
+    const forecastMensual = round2(ultimos3.length > 0 ? ultimos3.reduce((a, b) => a + b, 0) / ultimos3.length : 0);
+
+    const brecha = forecastMensual > 0 ? round2(((forecastMensual - puntoEquilibrioMensual) / forecastMensual) * 100) : null;
+    const viabilidad = puntoEquilibrioMensual > 0
+      ? (brecha != null && brecha > 20) ? "Saludable" : (brecha != null && brecha >= 5) ? "Ajustado" : "Alto riesgo"
+      : "Indeterminado";
+
+    const dataJsonCompleto = {
+      periodo: { inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10) },
+      parametros: { alquiler: alquiler || 0, costosPersonal: costosPersonal || 0, costosServicios: costosServicios || 0, costosFijosMensuales: round2(costosFijosMensuales) },
+      resultado: { margenBrutoPromedioPct: margenBrutoPct, puntoEquilibrioMensual, forecastMensual, brechaSeguridadPct: brecha, viabilidad },
+      ventasPorMes: Object.entries(vpm).sort((a, b) => a[0].localeCompare(b[0])).map(([mes, total]) => ({ mes, total: round2(total) })),
+    };
+
+    const dataJsonIA = {
+      parametros: dataJsonCompleto.parametros,
+      resultado: dataJsonCompleto.resultado,
+      contexto: { periodo: dataJsonCompleto.periodo },
+    };
+
+    const cacheKey = generarClaveCache("equilibrio", { sucursalId: sucursalId || "todas", rangoInicio, rangoFin, alquiler, costosPersonal, costosServicios });
+    let informe = await buscarCache("equilibrio", cacheKey);
+    if (informe) {
+      console.log(`[CACHE] Equilibrio cacheado encontrado: ${cacheKey}`);
+      res.json({ message: "Informe de punto de equilibrio generado (cache)", data: informe });
+      return;
+    }
+
+    const insight = await generarInsightEquilibrio(dataJsonIA);
+
+    informe = await prisma.informeAnalitico.create({
+      data: { tipoAnalisis: "equilibrio", sucursalId: sucursalId || null, rangoInicio: inicio, rangoFin: fin, dataJson: dataJsonCompleto as any, insightIA: parseInsightJson(insight, "equilibrio"), cacheKey },
+    });
+    res.json({ message: "Informe de punto de equilibrio generado", data: informe });
+  } catch (error) {
+    console.error("Error generando informe de punto de equilibrio:", error);
+    res.status(500).json({ message: "Error generando informe de punto de equilibrio" });
+  }
+};
+
+/* ═══════════════════════════════════════════
+   6. CANIBALIZACIÓN (MODELO DE HUFF)
+   ═══════════════════════════════════════════ */
+
+export const GenerarInformeCanibalizacion: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    console.log("[AnalisisControllers] [GenerarInformeCanibalizacion] body:", JSON.stringify(req.body, null, 2));
+    const { sucursalExistenteId, lat, lng, sucursalNuevaRevenue } = req.body;
+    if (!sucursalExistenteId || !lat || !lng) {
+      res.status(400).json({ message: "sucursalExistenteId, lat y lng son requeridos" });
+      return;
+    }
+
+    const sucursalExistente = await prisma.sucursal.findFirst({
+      where: { id: sucursalExistenteId, status: true },
+      include: {
+        compras: { where: { fecha: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }, status: { not: "cancelado" } }, select: { total: true } },
+      },
+    });
+    if (!sucursalExistente) { res.status(404).json({ message: "Sucursal existente no encontrada" }); return; }
+    const revenueExistente = sucursalExistente.compras.reduce((s, c) => s + c.total, 0);
+
+    // Buscar población de la ciudad de la sucursal
+    const ciudadData = await prisma.ciudadPoblacion.findFirst({
+      where: { nombre: { contains: sucursalExistente.ciudad } },
+      select: { nombre: true, region: true, poblacion: true },
+    });
+
+    // Atractivo: revenue como proxy de tamaño/oferta
+    const atractivoExistente = revenueExistente > 0 ? revenueExistente : 1;
+    const atractivoNueva = (sucursalNuevaRevenue || atractivoExistente * 0.7);
+
+    // Conexiones cercanas a la ubicación propuesta (50 km haversine)
+    const conexiones = await prisma.conexion.findMany({
+      where: { latitud: { not: 0 }, longitud: { not: 0 } },
+      select: { latitud: true, longitud: true, clienteId: true },
+    });
+    const conexionesCercanas = conexiones.filter((c) => {
+      return haversineDistanceKm(lat, lng, c.latitud, c.longitud) < 50;
+    });
+
+    // Queries de OSRM para tiempos de viaje (limitado a first 30)
+    const LAMBDA = 2;
+    let probNuevaTotal = 0;
+    let probExistenteTotal = 0;
+    let clientesProcesados = 0;
+    const radioMaxMin = 30;
+
+    for (const con of conexionesCercanas.slice(0, 30)) {
+      try {
+        const [rutaNueva, rutaExistente] = await Promise.all([
+          getDistanciaTiempo(lat, lng, con.latitud, con.longitud, radioMaxMin),
+          getDistanciaTiempo(sucursalExistente.coordenadasLat, sucursalExistente.coordenadasLng, con.latitud, con.longitud, radioMaxMin),
+        ]);
+        if (rutaNueva.dentro || rutaExistente.dentro) {
+          const tNueva = Math.max(rutaNueva.duracionMinutos, 1);
+          const tExistente = Math.max(rutaExistente.duracionMinutos, 1);
+          const utilidadNueva = atractivoNueva / Math.pow(tNueva, LAMBDA);
+          const utilidadExistente = atractivoExistente / Math.pow(tExistente, LAMBDA);
+          const suma = utilidadNueva + utilidadExistente;
+          if (suma > 0) {
+            probNuevaTotal += utilidadNueva / suma;
+            probExistenteTotal += utilidadExistente / suma;
+          }
+          clientesProcesados++;
+        }
+      } catch { /* skip on OSRM failure */ }
+    }
+
+    const canibalizacionPct = clientesProcesados > 0 ? round2((probNuevaTotal / clientesProcesados) * 100) : 0;
+    const tipo = canibalizacionPct > 30 ? "Redundante (erosión alta)" : canibalizacionPct > 15 ? "Mixta (requiere análisis)" : "Defensiva (riesgo bajo)";
+
+    const dataJsonCompleto = {
+      ubicacionPropuesta: { lat, lng },
+      sucursalExistente: { nombre: sucursalExistente.nombre, ciudad: sucursalExistente.ciudad, atractivo: round2(atractivoExistente) },
+      sucursalNueva: { atractivoEstimado: round2(atractivoNueva) },
+      poblacionCiudad: ciudadData ? { nombre: ciudadData.nombre, region: ciudadData.region, poblacion: ciudadData.poblacion } : null,
+      resultado: { clientesProcesados, canibalizacionPct, tipo },
+      huff: { lambda: LAMBDA, radioAnalisisKm: 50, radioMaxMin },
+    };
+
+    const dataJsonIA = {
+      ubicacionPropuesta: dataJsonCompleto.ubicacionPropuesta,
+      sucursalExistente: dataJsonCompleto.sucursalExistente,
+      poblacionCiudad: dataJsonCompleto.poblacionCiudad,
+      resultado: { canibalizacionPct, tipo },
+    };
+
+    const cacheKey = generarClaveCache("canibalizacion", { sucursalExistenteId, lat, lng, sucursalNuevaRevenue });
+    let informe = await buscarCache("canibalizacion", cacheKey);
+    if (informe) {
+      console.log(`[CACHE] Canibalizacion cacheado encontrado: ${cacheKey}`);
+      res.json({ message: "Informe de canibalización generado (cache)", data: informe });
+      return;
+    }
+
+    const insight = await generarInsightCanibalizacion(dataJsonIA);
+
+    informe = await prisma.informeAnalitico.create({
+      data: { tipoAnalisis: "canibalizacion", sucursalId: sucursalExistenteId, rangoInicio: new Date(), rangoFin: new Date(), dataJson: dataJsonCompleto as any, insightIA: parseInsightJson(insight, "canibalizacion"), cacheKey },
+    });
+    res.json({ message: "Informe de canibalización generado", data: informe });
+  } catch (error) {
+    console.error("Error generando informe de canibalización:", error);
+    res.status(500).json({ message: "Error generando informe de canibalización" });
+  }
+};
+
+/* ═══════════════════════════════════════════
+   7. ANÁLISIS DE EXPANSIÓN
    ═══════════════════════════════════════════ */
 
 export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log("[AnalisisControllers] [GenerarInformeExpansion] body:", JSON.stringify(req.body, null, 2));
-    const { latitud, longitud, radioKm = 5, rangoInicio, rangoFin } = req.body;
+    const { latitud, longitud, radioKm = 5, rangoInicio, rangoFin, ciudad } = req.body;
     if (!latitud || !longitud) {
       res.status(400).json({ message: "latitud y longitud son requeridos" });
       return;
@@ -1066,10 +1628,11 @@ export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, 
     const inicio = rangoInicio ? new Date(rangoInicio) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
     const fin = rangoFin ? new Date(rangoFin) : new Date();
 
-    const [conexiones, competidoresDB, categorias, sinergias, ultimasTasas] = await Promise.all([
+    const [conexiones, competidoresDB, categorias, sinergias, ultimasTasas, comprasTicket, ciudadData] = await Promise.all([
       prisma.conexion.findMany({
         where: { latitud: { not: 0 }, longitud: { not: 0 } },
-        select: { latitud: true, longitud: true, clienteId: true },
+        select: { latitud: true, longitud: true, clienteId: true, fecha: true },
+        orderBy: { fecha: "desc" },
       }),
       prisma.competidor.findMany({
         where: { coordenadasLat: { not: 0 }, coordenadasLng: { not: 0 } },
@@ -1078,29 +1641,53 @@ export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, 
       prisma.categoria.findMany({ select: { id: true, nombre: true } }),
       prisma.categoriaSinergia.findMany({ where: { activo: true } }),
       prisma.tasaCambio.findMany({ where: { moneda: "USD" }, orderBy: { fecha: "desc" }, take: 1 }),
+      // Ticket promedio real de compras
+      prisma.compra.findMany({
+        where: { status: { not: "cancelado" } },
+        select: { total: true },
+      }),
+      // Población de la ciudad si se proporciona
+      ciudad ? prisma.ciudadPoblacion.findFirst({
+        where: { nombre: { contains: ciudad } },
+        select: { nombre: true, region: true, poblacion: true },
+      }) : Promise.resolve(null),
     ]);
 
     const categoriasEmpresa = categorias.map((c) => c.nombre);
-    const ticketPromedio = ultimasTasas[0]?.precio ?? 50;
+    // Ticket promedio real de compras en lugar de tasa de cambio
+    const ticketPromedio = comprasTicket.length > 0
+      ? round2(comprasTicket.reduce((s, c) => s + c.total, 0) / comprasTicket.length)
+      : 50;
 
-    // Capa 1: Conexiones cercanas vía OSRM
+    // Última conexión por clienteId (evitar inflar demanda)
+    const ultimaConexionPorCliente = new Map<number, { latitud: number; longitud: number; fecha: Date }>();
+    conexiones.forEach((c) => {
+      if (!c.clienteId) return;
+      const existing = ultimaConexionPorCliente.get(c.clienteId);
+      if (!existing || c.fecha > existing.fecha) {
+        ultimaConexionPorCliente.set(c.clienteId, { latitud: c.latitud, longitud: c.longitud, fecha: c.fecha });
+      }
+    });
+
+    // Capa 1: Conexiones cercanas vía OSRM (usando última conexión de cada cliente)
     const radioMaxMinutos = 10;
-    const conexionesCercanas: Array<{ lat: number; lng: number; duracionMinutos: number; distanciaKm: number }> = [];
-    for (const con of conexiones) {
+    const conexionesCercanas: Array<{ clienteId: number; lat: number; lng: number; duracionMinutos: number; distanciaKm: number }> = [];
+    for (const [clienteId, con] of ultimaConexionPorCliente.entries()) {
       try {
         const ruta = await getDistanciaTiempo(latitud, longitud, con.latitud, con.longitud, radioMaxMinutos);
         if (ruta.dentro) {
-          conexionesCercanas.push({ lat: con.latitud, lng: con.longitud, duracionMinutos: ruta.duracionMinutos, distanciaKm: ruta.distanciaKm });
+          conexionesCercanas.push({ clienteId, lat: con.latitud, lng: con.longitud, duracionMinutos: ruta.duracionMinutos, distanciaKm: ruta.distanciaKm });
         }
       } catch {
         const distHav = haversineDistanceKm(latitud, longitud, con.latitud, con.longitud);
         if (distHav < radioKm) {
-          conexionesCercanas.push({ lat: con.latitud, lng: con.longitud, duracionMinutos: distHav / 50 * 60, distanciaKm: distHav });
+          conexionesCercanas.push({ clienteId, lat: con.latitud, lng: con.longitud, duracionMinutos: distHav / 50 * 60, distanciaKm: distHav });
         }
       }
     }
 
-    const clientesPotenciales = new Set(conexionesCercanas.map((c) => c.lat + "," + c.lng)).size;
+    // Clientes potenciales = clientes únicos (no ubicaciones)
+    const clientesPotenciales = new Set(conexionesCercanas.map((c) => c.clienteId)).size;
     const conexionesTotales = conexionesCercanas.length;
 
     // Capa 2: Void Analysis vía Overpass
@@ -1158,8 +1745,9 @@ export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, 
     const dataJsonCompleto = {
       ubicacionPropuesta: { latitud, longitud, radioKm },
       periodo: { inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10) },
+      poblacionCiudad: ciudadData ? { nombre: ciudadData.nombre, region: ciudadData.region, poblacion: ciudadData.poblacion } : null,
       demanda: {
-        clientesPotenciales: conexionesTotales,
+        clientesPotenciales,
         zonasUnicasCercanas: clientesPotenciales,
         ticketPromedioEstimado: ticketPromedio,
       },
@@ -1186,6 +1774,7 @@ export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, 
 
     const dataJsonIA = {
       ubicacion: dataJsonCompleto.ubicacionPropuesta,
+      poblacionCiudad: dataJsonCompleto.poblacionCiudad,
       demanda: dataJsonCompleto.demanda,
       cobertura: dataJsonCompleto.cobertura,
       coTenencia: dataJsonCompleto.coTenencia,
@@ -1193,16 +1782,25 @@ export const GenerarInformeExpansion: RequestHandler = async (req: AuthRequest, 
       puntuacionViabilidad: dataJsonCompleto.puntuacionViabilidad,
     };
 
+    const cacheKey = generarClaveCache("expansion", { latitud, longitud, radioKm, rangoInicio, rangoFin });
+    let informe = await buscarCache("expansion", cacheKey);
+    if (informe) {
+      console.log(`[CACHE] Expansion cacheado encontrado: ${cacheKey}`);
+      res.json({ message: "Informe de expansión generado (cache)", data: informe });
+      return;
+    }
+
     const insight = await generarInsightExpansion(dataJsonIA);
 
-    const informe = await prisma.informeAnalitico.create({
+    informe = await prisma.informeAnalitico.create({
       data: {
         tipoAnalisis: "expansion",
         sucursalId: null,
         rangoInicio: inicio,
         rangoFin: fin,
         dataJson: dataJsonCompleto as any,
-        insightIA: insight,
+        insightIA: parseInsightJson(insight, "expansion"),
+        cacheKey,
       },
     });
 
@@ -1240,6 +1838,26 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
     const fin = new Date();
     const inicioAnt = new Date(inicio.getTime() - (fin.getTime() - inicio.getTime()));
 
+    // Agrupación dinámica
+    let agrupacion: "dia" | "semana" | "mes";
+    let getKey: (d: Date) => string;
+    if (diasNum <= 14) {
+      agrupacion = "dia";
+      getKey = (d) => d.toISOString().slice(0, 10); // YYYY-MM-DD
+    } else if (diasNum <= 90) {
+      agrupacion = "semana";
+      getKey = (d) => {
+        const day = d.getDay();
+        const diffToMonday = day === 0 ? -6 : 1 - day;
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + diffToMonday);
+        return monday.toISOString().slice(0, 10); // lunes de esa semana
+      };
+    } else {
+      agrupacion = "mes";
+      getKey = (d) => d.toISOString().slice(0, 7); // YYYY-MM
+    }
+
     const whereCompra: any = { fecha: { gte: inicio, lte: fin }, status: { not: "cancelado" } };
     if (sucursalId) whereCompra.sucursalId = parseInt(sucursalId as string);
 
@@ -1247,7 +1865,7 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
     if (sucursalId) whereCompraAnt.sucursalId = parseInt(sucursalId as string);
 
     const [compras, comprasAnt, clientes, clientesNuevos, categorias, sucursales, detalles] = await Promise.all([
-      prisma.compra.findMany({ where: whereCompra, select: { id: true, total: true, fecha: true, sucursalId: true, clienteId: true } }),
+      prisma.compra.findMany({ where: whereCompra, select: { id: true, total: true, fecha: true, sucursalId: true, clienteId: true, tipo: true } }),
       prisma.compra.findMany({ where: whereCompraAnt, select: { total: true } }),
       prisma.cliente.findMany({ select: { id: true, createdAt: true } }),
       prisma.cliente.count({ where: { createdAt: { gte: inicio, lte: fin } } }),
@@ -1266,10 +1884,10 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
 
     const ventasPorMes: Record<string, { revenue: number; compras: number }> = {};
     compras.forEach((c) => {
-      const mes = c.fecha.toISOString().slice(0, 7);
-      if (!ventasPorMes[mes]) ventasPorMes[mes] = { revenue: 0, compras: 0 };
-      ventasPorMes[mes].revenue += c.total;
-      ventasPorMes[mes].compras++;
+      const key = getKey(c.fecha);
+      if (!ventasPorMes[key]) ventasPorMes[key] = { revenue: 0, compras: 0 };
+      ventasPorMes[key].revenue += c.total;
+      ventasPorMes[key].compras++;
     });
 
     const ventasPorSucursal: Record<string, { revenue: number; compras: number }> = {};
@@ -1283,8 +1901,8 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
 
     const clientesPorMes: Record<string, number> = {};
     clientes.forEach((c) => {
-      const mes = c.createdAt.toISOString().slice(0, 7);
-      clientesPorMes[mes] = (clientesPorMes[mes] || 0) + 1;
+      const key = getKey(c.createdAt);
+      clientesPorMes[key] = (clientesPorMes[key] || 0) + 1;
     });
 
     const ventasPorCategoria: Record<string, number> = {};
@@ -1293,9 +1911,15 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
       ventasPorCategoria[cat] = (ventasPorCategoria[cat] || 0) + d.cantidad * d.precioUnit;
     });
 
+    const ventasPorTipo: Record<string, number> = {};
+    compras.forEach((c) => {
+      const tipo = c.tipo || "compra_web";
+      ventasPorTipo[tipo] = (ventasPorTipo[tipo] || 0) + 1;
+    });
+
     res.json({
       data: {
-        periodo: { dias: diasNum, inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10) },
+        periodo: { dias: diasNum, inicio: inicio.toISOString().slice(0, 10), fin: fin.toISOString().slice(0, 10), agrupacion },
         kpis: {
           revenueTotal: round2(revenueActual),
           totalCompras: compras.length,
@@ -1307,6 +1931,7 @@ export const ObtenerEstadisticas: RequestHandler = async (req: AuthRequest, res:
         ventasPorSucursal: Object.entries(ventasPorSucursal).map(([sucursal, v]) => ({ sucursal, ...v })),
         clientesPorMes: Object.entries(clientesPorMes).sort((a, b) => a[0].localeCompare(b[0])).map(([mes, total]) => ({ mes, total })),
         ventasPorCategoria: Object.entries(ventasPorCategoria).map(([categoria, total]) => ({ categoria, total: round2(total) })),
+        ventasPorTipo: Object.entries(ventasPorTipo).map(([tipo, cantidad]) => ({ tipo, cantidad })),
         categorias: categorias.map((c) => c.nombre),
         sucursales,
       },
@@ -1363,5 +1988,202 @@ export const GuardarPDF: RequestHandler = async (req: AuthRequest, res: Response
   } catch (error) {
     console.error("Error guardando PDF:", error);
     res.status(500).json({ message: "Error al guardar PDF" });
+  }
+};
+
+/* ─────────────────────────────────────────
+   DASHBOARD RESUMEN (datos reales)
+   ───────────────────────────────────────── */
+
+function getHoyStart() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getHoyEnd() {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function getInicioMes() {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getInicioMesAnterior() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getFinMesAnterior() {
+  const d = new Date();
+  d.setDate(0);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+export const DashboardResumen: RequestHandler = async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const hoyStart = getHoyStart();
+    const hoyEnd = getHoyEnd();
+    const inicioMes = getInicioMes();
+    const inicioMesAnt = getInicioMesAnterior();
+    const finMesAnt = getFinMesAnterior();
+
+    // ── KPIs básicos ──
+    const [comprasMes, comprasMesAnt, comprasHoy, productosActivos, clientesNuevosHoy, clientesNuevosMes] = await Promise.all([
+      prisma.compra.findMany({ where: { fecha: { gte: inicioMes }, status: { not: "cancelado" } }, select: { total: true } }),
+      prisma.compra.findMany({ where: { fecha: { gte: inicioMesAnt, lte: finMesAnt }, status: { not: "cancelado" } }, select: { total: true } }),
+      prisma.compra.findMany({ where: { fecha: { gte: hoyStart, lte: hoyEnd }, status: { not: "cancelado" } }, select: { total: true } }),
+      prisma.producto.count(),
+      prisma.cliente.count({ where: { createdAt: { gte: hoyStart, lte: hoyEnd } } }),
+      prisma.cliente.count({ where: { createdAt: { gte: inicioMes } } }),
+    ]);
+
+    const ventasMesActual = comprasMes.reduce((s, c) => s + c.total, 0);
+    const ventasMesAnterior = comprasMesAnt.reduce((s, c) => s + c.total, 0);
+    const ventasHoy = comprasHoy.reduce((s, c) => s + c.total, 0);
+    const cambioVsMesAnterior = ventasMesAnterior > 0
+      ? round2(((ventasMesActual - ventasMesAnterior) / ventasMesAnterior) * 100)
+      : null;
+
+    // ── Tendencia últimos 7 días ──
+    const dias7 = new Date();
+    dias7.setDate(dias7.getDate() - 6);
+    dias7.setHours(0, 0, 0, 0);
+    const compras7d = await prisma.compra.findMany({
+      where: { fecha: { gte: dias7 }, status: { not: "cancelado" } },
+      select: { total: true, fecha: true },
+    });
+    const tendenciaMap: Record<string, number> = {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      const key = d.toISOString().slice(0, 10);
+      tendenciaMap[key] = 0;
+    }
+    compras7d.forEach((c) => {
+      const key = c.fecha.toISOString().slice(0, 10);
+      if (tendenciaMap[key] !== undefined) tendenciaMap[key] += c.total;
+    });
+    const diasLabels = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+    const tendencia = Object.entries(tendenciaMap).sort((a, b) => a[0].localeCompare(b[0])).map(([fecha, ventas]) => {
+      const d = new Date(fecha + "T00:00:00");
+      return { name: diasLabels[d.getDay()] || fecha.slice(5), ventas: round2(ventas) };
+    });
+
+    // ── Ventas por Sucursal (pie chart) ──
+    const sucursales = await prisma.sucursal.findMany({ where: { status: true }, select: { id: true, nombre: true, ciudad: true } });
+    const comprasSuc = await prisma.compra.findMany({
+      where: { fecha: { gte: inicioMes }, status: { not: "cancelado" } },
+      select: { total: true, sucursalId: true },
+    });
+    const ventasPorSucursal: Record<string, { name: string; value: number }> = {};
+    sucursales.forEach((s) => { ventasPorSucursal[String(s.id)] = { name: s.ciudad || s.nombre, value: 0 }; });
+    comprasSuc.forEach((c) => {
+      const entry = ventasPorSucursal[String(c.sucursalId)];
+      if (entry) entry.value += c.total;
+    });
+    const ventasSucursalArray = Object.values(ventasPorSucursal)
+      .filter((s) => s.value > 0)
+      .map((s) => ({ ...s, value: round2(s.value) }));
+
+    // ── Top 5 Productos ──
+    const detallesTop = await prisma.compraDetalle.findMany({
+      where: { compra: { fecha: { gte: inicioMes }, status: { not: "cancelado" } } },
+      select: { cantidad: true, precioUnit: true, producto: { select: { id: true, nombre: true } } },
+    });
+    const prodMap: Record<number, { name: string; ventas: number; ingresos: number }> = {};
+    detallesTop.forEach((d) => {
+      const pid = d.producto.id;
+      if (!prodMap[pid]) prodMap[pid] = { name: d.producto.nombre, ventas: 0, ingresos: 0 };
+      prodMap[pid].ventas += d.cantidad;
+      prodMap[pid].ingresos += d.cantidad * d.precioUnit;
+    });
+    const topProductos = Object.values(prodMap)
+      .sort((a, b) => b.ventas - a.ventas)
+      .slice(0, 5)
+      .map((p) => ({ name: p.name, ventas: p.ventas, ingresos: round2(p.ingresos) }));
+
+    // ── Stock Bajo ──
+    const inventarioBajo = await prisma.inventario.findMany({
+      where: { stockActual: { lt: prisma.inventario.fields.stockMinimo } },
+      select: { stockActual: true, stockMinimo: true, producto: { select: { nombre: true } }, sucursal: { select: { nombre: true } } },
+      take: 10,
+    });
+    const stockBajo = inventarioBajo.map((inv) => ({
+      name: inv.producto.nombre,
+      stock: inv.stockActual,
+      minimo: inv.stockMinimo,
+      sucursal: inv.sucursal.nombre,
+    }));
+
+    // ── Ventas Recientes ──
+    const comprasRecientes = await prisma.compra.findMany({
+      where: { status: { not: "cancelado" } },
+      orderBy: { fecha: "desc" },
+      take: 10,
+      select: {
+        id: true, total: true, fecha: true,
+        cliente: { select: { nombre: true, apellido: true } },
+        sucursal: { select: { ciudad: true } },
+        detalles: { take: 1, select: { producto: { select: { nombre: true } } } },
+      },
+    });
+    const ventasRecientes = comprasRecientes.map((c) => ({
+      id: c.id,
+      cliente: `${c.cliente.nombre} ${c.cliente.apellido}`,
+      producto: c.detalles[0]?.producto?.nombre || "—",
+      monto: round2(c.total),
+      ciudad: c.sucursal?.ciudad || "—",
+      fecha: c.fecha,
+    }));
+
+    // ── Festividad próxima ──
+    const mesActual = new Date().getMonth() + 1; // 1-12
+    const mesSiguiente = mesActual === 12 ? 1 : mesActual + 1;
+    const coefFest = await prisma.coeficienteFestividad.findUnique({ where: { mes: mesSiguiente } });
+    let festividadProxima = null;
+    if (coefFest) {
+      const nombresMes = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+      const coef = coefFest.coeficientePromedio;
+      const impacto = coef > 1.15 ? "aumento" : coef < 0.85 ? "disminución" : "neutral";
+      const mensaje = coef > 1.15
+        ? `Se espera un aumento del ${Math.round((coef - 1) * 100)}% en ventas por temporada alta en ${nombresMes[mesSiguiente]}`
+        : coef < 0.85
+          ? `Se espera una disminución del ${Math.round((1 - coef) * 100)}% en ventas en ${nombresMes[mesSiguiente]}`
+          : `Se espera estabilidad en ventas para ${nombresMes[mesSiguiente]}`;
+      festividadProxima = { mes: mesSiguiente, nombre: nombresMes[mesSiguiente], coeficiente: round2(coef), impacto, mensaje };
+    }
+
+    res.json({
+      data: {
+        kpis: {
+          ventasTotales: round2(ventasMesActual),
+          comprasHoy: comprasHoy.length,
+          ventasHoy: round2(ventasHoy),
+          productosActivos,
+          clientesNuevosHoy,
+          clientesNuevosMes,
+          cambioVsMesAnteriorPct: cambioVsMesAnterior,
+        },
+        tendencia,
+        ventasPorSucursal: ventasSucursalArray,
+        topProductos,
+        stockBajo,
+        ventasRecientes,
+        festividadProxima,
+      },
+    });
+  } catch (error) {
+    console.error("Error en DashboardResumen:", error);
+    res.status(500).json({ message: "Error al obtener resumen del dashboard" });
   }
 };

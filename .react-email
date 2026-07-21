@@ -1,0 +1,4 @@
+{
+  "templatesDir": "./src/emails/templates",
+  "port": 3333
+}

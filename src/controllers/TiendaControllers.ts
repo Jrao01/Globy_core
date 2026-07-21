@@ -9,7 +9,7 @@ export const GetTiendaProductos: RequestHandler = async (_req: Request, res: Res
       prisma.producto.findMany({
         include: {
           categoria: true,
-          inventarios: true,
+          inventarios: { where: { sucursal: { status: true } } },
         },
       }),
       getExchangeRates(),
@@ -56,7 +56,7 @@ export const GetTiendaProductoById: RequestHandler = async (req: Request, res: R
     const [producto, tasas] = await Promise.all([
       prisma.producto.findUnique({
         where: { id: numericId },
-        include: { categoria: true, inventarios: { include: { sucursal: true } } },
+        include: { categoria: true, inventarios: { where: { sucursal: { status: true } }, include: { sucursal: true } } },
       }),
       getExchangeRates(),
     ]);
@@ -69,7 +69,7 @@ export const GetTiendaProductoById: RequestHandler = async (req: Request, res: R
     const relacionados = await prisma.producto.findMany({
       where: { categoriaId: producto.categoriaId, id: { not: numericId } },
       take: 6,
-      include: { categoria: true, inventarios: true },
+      include: { categoria: true, inventarios: { where: { sucursal: { status: true } } } },
     });
     const relacionadosMapped = relacionados.map((r) => ({
       ...r,

@@ -1,12 +1,12 @@
-const OSRM_BASE = "https://router.project-osrm.org";
+const OSRM_BASE = "http://localhost:5000";
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 const routeCache = new Map<string, { distance: number; duration: number; timestamp: number }>();
 
 const pendingQueue: Array<() => void> = [];
 let activeRequests = 0;
-const MAX_CONCURRENT = 5;
-const REQUEST_DELAY_MS = 200;
+const MAX_CONCURRENT = 50;
+const REQUEST_DELAY_MS = 0;
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));

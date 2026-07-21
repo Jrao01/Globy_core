@@ -21,10 +21,11 @@ export const CreateSucursal: RequestHandler = async (req: Request, res: Response
   }
 };
 
-export const GetAllSucursales: RequestHandler = async (_req: Request, res: Response): Promise<void> => {
+export const GetAllSucursales: RequestHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     console.log("[SucursalControllers] [GetAllSucursales]");
-    const sucursales = await getAllSucursales();
+    const onlyActive = req.query.activas === "true";
+    const sucursales = await getAllSucursales(onlyActive);
     res.json({ data: sucursales });
   } catch (error) {
     console.error(error);

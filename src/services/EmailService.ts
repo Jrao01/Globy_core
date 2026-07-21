@@ -1,11 +1,26 @@
 import nodemailer from "nodemailer";
 import prisma from "../config/prisma.js";
+import { renderEmailComponent } from "../emails/renderEmail.js";
+import type { ComponentType } from "react";
+import type { EmpresaConfigInfo } from "../emails/types.js";
 
 export interface EmailOptions {
   to: string;
   subject: string;
   html: string;
 }
+
+export const getEmpresaConfig = async (): Promise<EmpresaConfigInfo> => {
+  const config = await prisma.empresaConfig.findFirst();
+  return {
+    nombreEmpresa: config?.nombreEmpresa || "Globy",
+    rif: config?.rif || "00000000",
+    direccionFiscal: config?.direccionFiscal || "",
+    telefono: config?.telefono || undefined,
+    logoUrl: config?.logoUrl || undefined,
+    colorPrimario: config?.colorPrimario || "#5713be",
+  };
+};
 
 const getTransporter = async () => {
   const config = await prisma.empresaConfig.findFirst();
@@ -32,4 +47,14 @@ export const sendEmail = async (options: EmailOptions) => {
     subject: options.subject,
     html: options.html,
   });
+};
+
+export const sendTemplateEmail = async <T extends Record<string, unknown>>(
+  to: string,
+  subject: string,
+  Template: ComponentType<T>,
+  props: T,
+) => {
+  const html = await renderEmailComponent(Template, props);
+  await sendEmail({ to, subject, html });
 };

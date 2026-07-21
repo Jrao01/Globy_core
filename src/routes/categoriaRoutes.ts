@@ -5,7 +5,7 @@ import {
   UpdateCategoria,
   DeleteCategoria,
 } from "../controllers/CategoriaControllers.js";
-import { verifyToken } from "../middlewares/authMiddleware.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
 
 const router = Router();
 

@@ -11,8 +11,8 @@ import {
     DisableProducto,
     GetProductoDetail
 } from "../controllers/ProductoControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
-import { upload } from "../middlewares/uploadMiddleware.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
+import { upload } from "../middleware/uploadMiddleware.js";
 import { validate, schemas } from "../middleware/validate.js";
 
 const router = Router();

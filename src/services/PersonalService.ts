@@ -30,6 +30,8 @@ export const loginPersonal = async (
   });
 
   if (!user) throw new Error("INVALID_CREDENTIALS");
+  if (!user.status) throw new Error("USER_INACTIVE");
+  if (user.sucursal && !user.sucursal.status) throw new Error("SUCURSAL_INACTIVE");
   const passwordValid = await bcrypt.compare(password, user.password);
   if (!passwordValid) throw new Error("INVALID_CREDENTIALS");
 

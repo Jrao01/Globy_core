@@ -31,19 +31,195 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function markdownToHtml(text: string | null): string {
-  if (!text) return "<p>Sin análisis disponible</p>";
-  let html = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  html = html
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, "<br />");
-  html = html.replace(/(<br \/>)(<h[23]>)/g, "$2");
-  html = html.replace(/(<\/h[23]>)(<br \/>)/g, "$1");
+function renderInsightJson(insight: any): string {
+  if (!insight || typeof insight !== "object") return "<p>Sin analisis disponible</p>";
+
+  let html = `<h2>📊 Analisis de Inteligencia Artificial</h2>`;
+
+  if (insight.resumen) {
+    html += `<p style="font-size:11px;margin-bottom:10px;line-height:1.6;color:#1e293b;">${insight.resumen}</p>`;
+  }
+
+  if (insight.pronostico) {
+    const p = insight.pronostico;
+    html += `<h3>Pronostico (Forecast)</h3>
+    <div class="stat-grid">`;
+    if (p.valorEstimado) html += `<div class="stat-card blue"><div class="value">$${Number(p.valorEstimado).toLocaleString()}</div><div class="label">Valor Estimado</div></div>`;
+    if (p.tendencia) html += `<div class="stat-card"><div class="value">${p.tendencia}</div><div class="label">Tendencia</div></div>`;
+    if (p.metodo) html += `<div class="stat-card green"><div class="value">${p.metodo}</div><div class="label">Metodo</div></div>`;
+    html += `</div>`;
+    if (p.interpretacion) html += `<p style="font-size:10px;margin-top:6px;color:#475569;">${p.interpretacion}</p>`;
+    if (p.efectoFestivo?.detectado) {
+      html += `<p style="font-size:10px;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:4px;">🎄 Efecto festivo (holiday effect) detectado: <strong>${p.efectoFestivo.nombre}</strong> (ajuste: +${p.efectoFestivo.ajustePorcentual}%)</p>`;
+    }
+    if (p.variacionInteranual?.porcentaje != null) {
+      html += `<p style="font-size:10px;color:#475569;">Variacion interanual (year-over-year): <strong>${p.variacionInteranual.porcentaje >= 0 ? "+" : ""}${p.variacionInteranual.porcentaje}%</strong> — ${p.variacionInteranual.interpretacion || ""}</p>`;
+    }
+  }
+
+  if (insight.recomendaciones?.length > 0 || insight.recomendacionesOperativas?.length > 0) {
+    const recs = insight.recomendaciones || insight.recomendacionesOperativas || [];
+    html += `<h3>Recomendaciones</h3>`;
+    recs.forEach((r: any, i: number) => {
+      const color = r.prioridad === "alta" ? "#fee2e2" : r.prioridad === "media" ? "#fef3c7" : "#f0fdf4";
+      const border = r.prioridad === "alta" ? "#ef4444" : r.prioridad === "media" ? "#f59e0b" : "#22c55e";
+      html += `<div style="background:${color};border-left:3px solid ${border};padding:8px 12px;margin:4px 0;border-radius:0 4px 4px 0;font-size:10px;">
+        <strong>${i + 1}.</strong> ${r.accion || r.paso || ""}
+        ${r.datoClave ? `<br/><span style="font-size:9px;color:#64748b;">📊 ${r.datoClave}</span>` : ""}
+        ${r.prioridad ? ` <span style="font-size:8px;color:#64748b;">[${r.prioridad}]</span>` : ""}
+      </div>`;
+    });
+  }
+
+  if (insight.alertas?.length > 0 || insight.puntosCriticos?.length > 0) {
+    const alerts = insight.alertas || insight.puntosCriticos || [];
+    html += `<h3>Alertas / Puntos Criticos</h3>`;
+    alerts.forEach((a: any) => {
+      const color = a.severidad === "alta" || a.tipo === "churn" ? "#fee2e2" : "#fef3c7";
+      html += `<div style="background:${color};padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;">
+        ⚠️ <strong>${a.tipo}:</strong> ${a.mensaje || a.riesgo || ""}
+        ${a.dato ? `<br/><span style="font-size:9px;color:#64748b;">Dato: ${a.dato}</span>` : ""}
+      </div>`;
+    });
+  }
+
+  if (insight.diagnostico && typeof insight.diagnostico === "object" && insight.diagnostico.interpretacion) {
+    const d = insight.diagnostico;
+    html += `<h3>Diagnostico</h3>
+    <div style="background:#f0f9ff;border-left:4px solid #6366f1;padding:10px 14px;margin:6px 0;border-radius:0 6px 6px 0;">
+      <p style="font-size:10px;margin:0;color:#1e293b;">${d.interpretacion}</p>
+      ${d.variableClave ? `<p style="font-size:9px;color:#64748b;margin-top:4px;">Variable clave: ${d.variableClave} | Cambio: ${d.cambio} (${d.magnitud != null ? d.magnitud : ""})</p>` : ""}
+    </div>`;
+  }
+
+  if (insight.evaluacionViabilidad) {
+    const ev = insight.evaluacionViabilidad;
+    const color = ev.categoria === "saludable" ? "#10b981" : ev.categoria === "ajustada" ? "#f59e0b" : "#ef4444";
+    html += `<h3>Evaluacion de Viabilidad</h3>
+    <div style="background:#f0fdf4;border-left:4px solid ${color};padding:10px 14px;margin:6px 0;border-radius:0 6px 6px 0;">
+      <p style="font-size:10px;margin:0;color:#1e293b;">${ev.diagnostico || ""}</p>
+      <p style="font-size:10px;margin-top:4px;color:#475569;">Brecha de seguridad (safety margin): <strong>${ev.brechaSeguridadPorcentual != null ? ev.brechaSeguridadPorcentual + "%" : "N/A"}</strong></p>
+    </div>`;
+  }
+
+  if (insight.interpretacionEstrategica) {
+    const ie = insight.interpretacionEstrategica;
+    html += `<h3>Interpretacion Estrategica</h3>
+    <div style="background:#f0f9ff;border-left:4px solid #6366f1;padding:10px 14px;margin:6px 0;border-radius:0 6px 6px 0;">
+      <p style="font-size:10px;margin:0;color:#1e293b;">${ie.diagnostico || ""}</p>
+      <p style="font-size:9px;color:#64748b;margin-top:4px;">Nivel de canibalizacion (cannibalization): <strong>${ie.nivelCanibalizacion}</strong> (${ie.porcentaje != null ? ie.porcentaje + "%" : "N/A"})</p>
+    </div>`;
+  }
+
+  if (insight.recomendacionFinal) {
+    const rf = insight.recomendacionFinal;
+    const badgeColor = rf.decision === "ABRIR" ? "badge-success" : rf.decision === "NO_ABRIR" ? "badge-danger" : "badge-warning";
+    html += `<h3>Recomendacion Final</h3>
+    <div style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+      <span class="badge ${badgeColor}" style="font-size:11px;padding:4px 12px;">${rf.decision}</span>
+      <span style="font-size:10px;color:#64748b;">Confianza: ${rf.confianza || "N/A"}</span>
+    </div>
+    <p style="font-size:10px;color:#475569;">${rf.justificacion || ""}</p>`;
+  }
+
+  if (insight.recomendacion && typeof insight.recomendacion === "object") {
+    const r = insight.recomendacion;
+    html += `<h3>Recomendacion</h3>
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:10px 14px;margin:6px 0;border-radius:0 6px 6px 0;">
+      <p style="font-size:10px;margin:0;color:#1e293b;">${r.accion || r.justificacion || ""}</p>
+      ${r.decision ? `<p style="font-size:10px;margin-top:4px;">Decision: <strong>${r.decision}</strong></p>` : ""}
+    </div>`;
+  }
+
+  if (insight.diagnosticoUbicacion) {
+    const du = insight.diagnosticoUbicacion;
+    html += `<h3>Diagnostico de Ubicacion</h3>`;
+    if (du.demanda) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Demanda:</strong> ${du.demanda.evaluacion || ""} (clientes potenciales: ${du.demanda.clientesPotenciales || "N/A"}, ticket promedio: $${du.demanda.ticketPromedioEstimado || "N/A"})</div>`;
+    if (du.cobertura) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Cobertura:</strong> ${du.cobertura.evaluacion || ""} (radio: ${du.cobertura.radioKm || "N/A"} km, accesibilidad: ${du.cobertura.accesibilidadMinutos || "N/A"} min)</div>`;
+    if (du.coTenencia) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Co-Tenencia:</strong> ${du.coTenencia.evaluacion || ""} (score: ${du.coTenencia.scoreComplementariedad || "N/A"}, negocios: ${du.coTenencia.negociosComplementarios || "N/A"})</div>`;
+    if (du.saturacion) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Saturacion (IRS):</strong> ${du.saturacion.interpretacion || ""} (IRS: ${du.saturacion.irs || "N/A"})</div>`;
+  }
+
+  if (insight.puntuacionViabilidad) {
+    html += `<h3>Puntuacion de Viabilidad</h3>
+    <div class="stat-grid">
+      <div class="stat-card ${insight.puntuacionViabilidad.categoria === "alta" ? "green" : insight.puntuacionViabilidad.categoria === "media" ? "orange" : "red"}">
+        <div class="value">${insight.puntuacionViabilidad.valor || 0}/100</div>
+        <div class="label">${insight.puntuacionViabilidad.categoria || "N/A"}</div>
+      </div>
+    </div>`;
+  }
+
+  if (insight.riesgos?.length > 0) {
+    html += `<h3>Riesgos</h3>`;
+    insight.riesgos.forEach((r: any) => {
+      const bg = r.probabilidad === "alta" || r.dirigidaA === "peor" ? "#fee2e2" : "#fef3c7";
+      html += `<div style="background:${bg};padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;">⚠️ ${r.riesgo || ""} ${r.probabilidad ? `[${r.probabilidad}]` : ""}${r.dato ? `<br/><span style="font-size:9px;color:#64748b;">Dato: ${r.dato}</span>` : ""}${r.consecuencia ? `<br/><span style="font-size:9px;color:#dc2626;">Consecuencia: ${r.consecuencia}</span>` : ""}</div>`;
+    });
+  }
+
+  if (insight.proximosPasos?.length > 0) {
+    html += `<h3>Proximos Pasos</h3>`;
+    insight.proximosPasos.forEach((p: any) => {
+      html += `<div style="background:#f8fafc;padding:6px 10px;margin:3px 0;border-radius:4px;font-size:10px;">➡️ ${p.paso || p.accion || ""} ${p.prioridad ? `[${p.prioridad}]` : ""}</div>`;
+    });
+  }
+
+  if (insight.accionesInmediatas?.length > 0) {
+    html += `<h3>Acciones Inmediatas</h3>`;
+    insight.accionesInmediatas.forEach((a: any) => {
+      html += `<div style="background:#f0fdf4;border-left:3px solid #22c55e;padding:6px 10px;margin:3px 0;border-radius:0 4px 4px 0;font-size:10px;">
+        ⏱️ ${a.accion || ""}
+        ${a.datoClave ? `<br/><span style="font-size:9px;color:#64748b;">📊 ${a.datoClave}</span>` : ""}
+        ${a.plazo ? ` <span style="font-size:8px;color:#64748b;">[${a.plazo}]</span>` : ""}
+      </div>`;
+    });
+  }
+
+  if (insight.comparativaSucursales) {
+    const cs = insight.comparativaSucursales;
+    html += `<h3>Comparativa entre Sucursales</h3>
+    <p style="font-size:10px;color:#475569;">${cs.analisis || ""}</p>
+    ${cs.brechaMargen?.valor != null ? `<p style="font-size:10px;color:#475569;">Brecha de margen: <strong>${cs.brechaMargen.valor}%</strong> — ${cs.brechaMargen.interpretacion || ""}</p>` : ""}
+    ${cs.posiblesCausas?.length > 0 ? `<ul style="font-size:10px;color:#64748b;">${cs.posiblesCausas.map((c: string) => `<li>${c}</li>`).join("")}</ul>` : ""}`;
+  }
+
+  if (insight.evaluacionEnfoques) {
+    const ee = insight.evaluacionEnfoques;
+    html += `<h3>Evaluacion de Enfoques</h3>`;
+    if (ee.concentrico) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Enfoque Concentrico:</strong> ${ee.concentrico.aplicabilidad ? "✅ Aplicable" : "❌ No aplicable"} — ${ee.concentrico.justificacion || ""}</div>`;
+    if (ee.selectivo) html += `<div style="background:#f8fafc;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;"><strong>Enfoque Selectivo:</strong> ${ee.selectivo.aplicabilidad ? "✅ Aplicable" : "❌ No aplicable"} — ${ee.selectivo.justificacion || ""}</div>`;
+  }
+
+  if (insight.recomendacionEstrategica) {
+    const re = insight.recomendacionEstrategica;
+    html += `<h3>Recomendacion Estrategica</h3>
+    <div style="background:#f0f9ff;border-left:4px solid #6366f1;padding:10px 14px;margin:6px 0;border-radius:0 6px 6px 0;">
+      <p style="font-size:10px;margin:0;color:#1e293b;">Enfoque recomendado: <strong>${re.enfoque || "N/A"}</strong> (confianza: ${re.confianza || "N/A"})</p>
+      <p style="font-size:10px;margin-top:4px;color:#475569;">${re.justificacion || ""}</p>
+    </div>`;
+  }
+
+  if (insight.alerta && typeof insight.alerta === "object") {
+    const al = insight.alerta;
+    if (al.hayAlerta) {
+      html += `<h3>Alerta</h3>
+      <div style="background:${al.tipo === "stock" ? "#fee2e2" : "#fef3c7"};padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;">
+        ⚠️ <strong>${al.tipo}:</strong> ${al.mensaje || ""}
+        ${al.dato ? `<br/><span style="font-size:9px;color:#64748b;">${al.dato}</span>` : ""}
+      </div>`;
+    }
+  }
+
+  if (insight.riesgoOperativo) {
+    const ro = insight.riesgoOperativo;
+    html += `<h3>Riesgo Operativo</h3>
+    <div style="background:#fef3c7;padding:8px 12px;margin:4px 0;border-radius:4px;font-size:10px;">
+      <p style="margin:0;color:#92400e;">${ro.descripcion || ""}</p>
+      ${ro.factores?.length > 0 ? `<ul style="font-size:9px;color:#92400e;margin-top:4px;">${ro.factores.map((f: string) => `<li>${f}</li>`).join("")}</ul>` : ""}
+    </div>`;
+  }
+
   return html;
 }
 
@@ -381,7 +557,7 @@ function renderSucursal(data: Record<string, any>): string {
 export async function generarPdf(
   tipoAnalisis: string,
   dataJson: unknown,
-  insightIA: string | null,
+  insightIA: any,
   titulo: string
 ): Promise<Buffer> {
   const data = parseDataJson(dataJson);
@@ -406,8 +582,7 @@ export async function generarPdf(
 
   if (insightIA) {
     reportContent += `<div class="section insight-box">
-      <h2>📊 Análisis de Inteligencia Artificial</h2>
-      ${markdownToHtml(insightIA)}
+      ${renderInsightJson(insightIA)}
     </div>`;
   }
 

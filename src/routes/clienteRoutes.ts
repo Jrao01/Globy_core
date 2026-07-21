@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { ClienteRegister, ClienteLogin, GetCLienteData, GetAllClientes, SearchClienteByCedula, UpdateCliente, ChangeClientePassword, GetClienteStats, GetClienteConexiones } from "../controllers/ClienteControllers.js";
-import { verifyToken } from "../middlewares/authMiddleware.js";
+import { ClienteRegister, ClienteLogin, GoogleAuth, GetCLienteData, GetAllClientes, SearchClienteByCedula, UpdateCliente, ChangeClientePassword, GetClienteStats, GetClienteConexiones } from "../controllers/ClienteControllers.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 import { validate, schemas } from "../middleware/validate.js";
 
@@ -8,6 +8,7 @@ const router = Router();
 
 router.post("/register", validate(schemas.clienteRegister), ClienteRegister);
 router.post("/login", authLimiter, validate(schemas.clienteLogin), ClienteLogin);
+router.post("/google", authLimiter, GoogleAuth);
 router.get("/search/:cedula", SearchClienteByCedula);
 
 // Rutas protegidas

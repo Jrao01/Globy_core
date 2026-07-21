@@ -83,15 +83,34 @@ export const LogInPersonal: RequestHandler = async (req: Request, res: Response)
   }
 };
 
-export const UpdatePersonal: RequestHandler = async (req: Request, res: Response): Promise<void> => {
-  const { id, ...updateData } = req.body as { id: number } & Prisma.PersonalUpdateInput;
+export const UpdatePersonal: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id, ...updateData } = req.body as { id: number } & Record<string, unknown>;
   if (!id) {
     res.status(400).json({ message: "ID del personal es requerido" });
     return;
   }
   try {
     console.log("[PersonalControllers] [UpdatePersonal] body:", JSON.stringify(req.body, null, 2));
-    const updated = await updatePersonal(id, updateData);
+
+    const requester = req.user;
+    const target = await getPersonalById(id);
+
+    if (requester?.rol === "gerente") {
+      if (target.sucursalId !== requester.sucursalId) {
+        res.status(403).json({ message: "No puedes editar personal de otra sucursal" });
+        return;
+      }
+      if (updateData.rol && (updateData.rol === "admin" || updateData.rol === "gerente")) {
+        res.status(403).json({ message: "No puedes asignar rol admin o gerente" });
+        return;
+      }
+      if (updateData.sucursalId && (updateData.sucursalId as number) !== requester.sucursalId) {
+        res.status(403).json({ message: "No puedes mover personal a otra sucursal" });
+        return;
+      }
+    }
+
+    const updated = await updatePersonal(id, updateData as Prisma.PersonalUpdateInput);
     res.json({ message: "Personal actualizado correctamente", data: updated });
   } catch (error) {
     console.error(error);

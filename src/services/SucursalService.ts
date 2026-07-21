@@ -8,8 +8,10 @@ export const createSucursal = async (
   return await prisma.sucursal.create({ data });
 };
 
-export const getAllSucursales = async () => {
+export const getAllSucursales = async (onlyActive = false) => {
+  const where = onlyActive ? { status: true } : {};
   return await prisma.sucursal.findMany({
+    where,
     include: {
       _count: { select: { personal: true, inventarios: true } },
       personal: {
@@ -30,6 +32,9 @@ export const updateSucursal = async (
 };
 
 export const setSucursalStatus = async (id: number, status: boolean) => {
+  if (!status) {
+    await prisma.personal.updateMany({ where: { sucursalId: id }, data: { status: false } });
+  }
   return await prisma.sucursal.update({ where: { id }, data: { status } });
 };
 

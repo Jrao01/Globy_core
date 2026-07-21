@@ -3,6 +3,9 @@ import { Prisma } from "../generated/index.js";
 import type { Cliente } from "../generated/index.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { sendTemplateEmail, getEmpresaConfig } from "./EmailService.js";
+import { Bienvenida } from "../emails/templates/Bienvenida.js";
+import { geocodeDireccion, getCoordenadasFromConexion } from "./GeocodingService.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 const SALT_ROUNDS = 10;
@@ -11,6 +14,17 @@ export const registerCliente = async (
   data: Prisma.ClienteCreateInput
 ): Promise<Omit<Cliente, "password">> => {
   const hashedPassword = await bcrypt.hash(data.password, SALT_ROUNDS);
+
+  let coordenadasLat: number | null = null;
+  let coordenadasLng: number | null = null;
+  if (data.direccion?.trim()) {
+    const coords = await geocodeDireccion(data.direccion).catch(() => null);
+    if (coords) {
+      coordenadasLat = coords.lat;
+      coordenadasLng = coords.lng;
+    }
+  }
+
   const newUser = await prisma.cliente.create({
     data: {
       nombre: data.nombre,
@@ -20,9 +34,17 @@ export const registerCliente = async (
       telefono: data.telefono ?? null,
       direccion: data.direccion ?? null,
       password: hashedPassword,
+      coordenadasLat,
+      coordenadasLng,
     },
   });
   const { password: _, ...safeUser } = newUser;
+
+  sendTemplateEmail(data.correo, "Bienvenido a Globy", Bienvenida, {
+    clienteNombre: data.nombre,
+    empresaConfig: await getEmpresaConfig(),
+  }).catch((err) => console.error("[Email] Error enviando bienvenida:", err.message));
+
   return safeUser;
 };
 
@@ -69,10 +91,25 @@ export const updateCliente = async (
   id: number,
   updateData: Prisma.ClienteUpdateInput
 ): Promise<Omit<Cliente, "password">> => {
+  let coordsUpdate: Partial<Pick<Prisma.ClienteUpdateInput, "coordenadasLat" | "coordenadasLng">> = {};
+
+  if (typeof updateData.direccion === "string" && updateData.direccion.trim()) {
+    const coords = await geocodeDireccion(updateData.direccion).catch(() => null);
+    if (coords) {
+      coordsUpdate = { coordenadasLat: coords.lat, coordenadasLng: coords.lng };
+    } else {
+      const fallback = await getCoordenadasFromConexion(id).catch(() => null);
+      if (fallback) {
+        coordsUpdate = { coordenadasLat: fallback.lat, coordenadasLng: fallback.lng };
+      }
+    }
+  }
+
   const updated = await prisma.cliente.update({
     where: { id },
     data: {
       ...updateData,
+      ...coordsUpdate,
       ...(updateData.direccion !== undefined && {
         direccion: updateData.direccion ?? null,
       }),

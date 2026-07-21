@@ -9,7 +9,7 @@ import {
   PrecioConDescuento,
   PreciosGlobales,
 } from "../controllers/OfertaControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
 import { validate, schemas } from "../middleware/validate.js";
 
 const router = Router();

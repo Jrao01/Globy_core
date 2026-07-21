@@ -48,7 +48,7 @@ export const schemas = {
     })).min(1),
     tipo: z.enum(["compra_web", "compra_directa"]).optional(),
     metodoPago: z.enum(["transferencia", "pago_movil", "efectivo_bs", "efectivo_usd"]).optional(),
-    refPago: z.string().max(50).optional(),
+    refPago: z.string().max(50).optional().nullable(),
     direccionEntrega: z.string().max(500).optional(),
     coordenadasLat: z.number().optional(),
     coordenadasLng: z.number().optional(),

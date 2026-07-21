@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+﻿import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/index.js";
 
 export const getConfig = async () => {
@@ -8,10 +8,21 @@ export const getConfig = async () => {
 };
 
 export const updateConfig = async (data: Prisma.EmpresaConfigUpdateInput) => {
-  return await prisma.empresaConfig.upsert({
-    where: { id: 1 },
-    update: data,
-    create: { ...data as Prisma.EmpresaConfigCreateInput, id: 1 },
+  const existing = await prisma.empresaConfig.findFirst();
+  if (existing) {
+    return await prisma.empresaConfig.update({
+      where: { id: existing.id },
+      data,
+    });
+  }
+  return await prisma.empresaConfig.create({
+    data: {
+      ...data as Prisma.EmpresaConfigCreateInput,
+      id: 1,
+      nombreEmpresa: "Mi Empresa",
+      rif: "J-00000000-0",
+      direccionFiscal: "",
+    },
   });
 };
 

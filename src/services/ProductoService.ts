@@ -1,6 +1,8 @@
 import prisma from "../config/prisma.js";
 import { Prisma } from "../generated/index.js";
 import type { Producto } from "../generated/index.js";
+import { sendTemplateEmail, getEmpresaConfig } from "./EmailService.js";
+import { SolicitudProveedor } from "../emails/templates/SolicitudProveedor.js";
 
 export const createProducto = async (
   categoriaId: number,
@@ -26,8 +28,16 @@ export const updateProducto = async (
   return await prisma.producto.update({ where: { id }, data: updateData });
 };
 
-export const getProductoById = async (id: number): Promise<Producto> => {
-  const producto = await prisma.producto.findUnique({ where: { id } });
+export const getProductoById = async (id: number) => {
+  const producto = await prisma.producto.findUnique({
+    where: { id },
+    include: {
+      categoria: true,
+      inventarios: {
+        include: { sucursal: true },
+      },
+    },
+  });
   if (!producto) throw new Error("NOT_FOUND");
   return producto;
 };
@@ -61,7 +71,7 @@ export const updateInventory = async (
   const finalStockMinimo = data.stockMinimo ?? existing?.stockMinimo ?? 5;
   const finalEstadoStock = data.estadoStock || calcEstadoStock(finalStockActual, finalStockMinimo);
 
-  return await prisma.inventario.upsert({
+  const result = await prisma.inventario.upsert({
     where: { sucursalId_productoId: { sucursalId, productoId } },
     update: {
       ...(data.stockActual !== undefined && { stockActual: data.stockActual }),
@@ -80,6 +90,39 @@ export const updateInventory = async (
       status: data.status ?? "disponible",
     },
   });
+
+  if (finalEstadoStock === "bajo" || finalEstadoStock === "agotado") {
+    const producto = await prisma.producto.findUnique({ where: { id: productoId } });
+    const sucursal = await prisma.sucursal.findUnique({ where: { id: sucursalId } });
+    if (producto?.emailProveedor && sucursal) {
+      const stockBajo = await prisma.inventario.findMany({
+        where: { sucursalId, estadoStock: { in: ["bajo", "agotado"] } },
+        include: { producto: true },
+      });
+      const productosProveedor = stockBajo
+        .filter((inv) => inv.producto.emailProveedor === producto.emailProveedor)
+        .map((inv) => ({
+          nombre: inv.producto.nombre,
+          stockActual: inv.stockActual,
+          cantidadNecesaria: Math.max(inv.stockMinimo - inv.stockActual + 1, 1),
+        }));
+      if (productosProveedor.length > 0) {
+        sendTemplateEmail(
+          producto.emailProveedor,
+          `Solicitud de reposición - ${sucursal.nombre}`,
+          SolicitudProveedor,
+          {
+            proveedorNombre: producto.emailProveedor.split("@")[0] || "Proveedor",
+            sucursalNombre: sucursal.nombre,
+            productos: productosProveedor,
+            empresaConfig: await getEmpresaConfig(),
+          },
+        ).catch((err) => console.error("[Email] Error enviando solicitud a proveedor:", err.message));
+      }
+    }
+  }
+
+  return result;
 };
 
 export const setProductoStatus = async (productoId: number, status: boolean) => {

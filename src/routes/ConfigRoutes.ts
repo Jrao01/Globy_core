@@ -1,17 +1,27 @@
 import { Router } from "express";
-import { GetConfig, UpdateConfig, CreateConfig, ListarSinergias, CrearSinergia, EliminarSinergia, SeedSinergiasDefault } from "../controllers/ConfigControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
-import { upload } from "../middlewares/uploadMiddleware.js";
+import { GetConfig, UpdateConfig, CreateConfig, ListarSinergias, CrearSinergia, ActualizarSinergia, EliminarSinergia, SeedSinergiasDefault, ListarCoeficientes, ActualizarCoeficiente, ListarCiudades, SyncCiudadesFromAPI, ConsultarCiudad } from "../controllers/ConfigControllers.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
+import { upload } from "../middleware/uploadMiddleware.js";
 
 const router = Router();
 
-router.get("/data", verifyToken, GetConfig);
+router.get("/data", GetConfig);
 router.post("/create", verifyToken, verifyRole("admin"), CreateConfig);
 router.put("/update", verifyToken, verifyRole("admin"), UpdateConfig);
-router.get("/sinergias", verifyToken, verifyRole("admin"), ListarSinergias);
-router.post("/sinergias", verifyToken, verifyRole("admin"), CrearSinergia);
-router.delete("/sinergias/:id", verifyToken, verifyRole("admin"), EliminarSinergia);
-router.post("/sinergias/seed", verifyToken, verifyRole("admin"), SeedSinergiasDefault);
+router.get("/sinergias", verifyToken, verifyRole("admin", "gerente"), ListarSinergias);
+router.post("/sinergias", verifyToken, verifyRole("admin", "gerente"), CrearSinergia);
+router.put("/sinergias/:id", verifyToken, verifyRole("admin", "gerente"), ActualizarSinergia);
+router.delete("/sinergias/:id", verifyToken, verifyRole("admin", "gerente"), EliminarSinergia);
+router.post("/sinergias/seed", verifyToken, verifyRole("admin", "gerente"), SeedSinergiasDefault);
+
+// Coeficientes de estacionalidad
+router.get("/coeficientes", verifyToken, ListarCoeficientes);
+router.put("/coeficientes/:id", verifyToken, verifyRole("admin"), ActualizarCoeficiente);
+
+// Ciudades de Venezuela
+router.get("/ciudades", verifyToken, ListarCiudades);
+router.get("/ciudades/consultar", verifyToken, ConsultarCiudad);
+router.post("/ciudades/sync", verifyToken, verifyRole("admin"), SyncCiudadesFromAPI);
 
 // Nueva ruta para subir el logo
 router.post("/upload-logo", verifyToken, verifyRole("admin"), upload.single("logo"), (req, res) => {

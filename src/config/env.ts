@@ -8,6 +8,7 @@ const optionalEnvVars = [
   "LLM_BASE_URL",
   "LLM_MODEL",
   "CORS_ORIGIN",
+  "GOOGLE_CLIENT_ID",
 ] as const;
 
 export function validateEnv(): void {

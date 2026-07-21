@@ -1,6 +1,7 @@
 import type { Response, NextFunction, RequestHandler } from "express";
 import type { AuthRequest, JwtPayload } from "../types/index.js";
 import jwt from "jsonwebtoken";
+import prisma from "../config/prisma.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 
@@ -44,4 +45,21 @@ export const verifyRole = (...rolesPermitidos: string[]): RequestHandler => {
     }
     next();
   };
+};
+
+export const verifySucursalActiva: RequestHandler = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    res.status(401).json({ message: "No autenticado." });
+    return;
+  }
+  if (!req.user.sucursalId) {
+    next();
+    return;
+  }
+  const sucursal = await prisma.sucursal.findUnique({ where: { id: req.user.sucursalId } });
+  if (!sucursal || !sucursal.status) {
+    res.status(403).json({ message: "Tu sucursal se encuentra desactivada. Contacta al administrador." });
+    return;
+  }
+  next();
 };

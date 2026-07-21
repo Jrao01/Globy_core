@@ -8,12 +8,11 @@ const client = new OpenAI({
 
 const MODEL = process.env.LLM_MODEL || "ministral-3:3b";
 
-async function llamarLLM(systemPrompt: string, userJson: unknown, tipo: string): Promise<string> {
-  const jsonStr = JSON.stringify(userJson, null, 2);
+async function llamarLLM(systemPrompt: string, userData: unknown, tipo: string): Promise<string> {
+  const dataStr = typeof userData === "string" ? userData : JSON.stringify(userData, null, 2);
   console.log(`\n🤖 [LLM → Mistral] Tipo: ${tipo}`);
-  console.log(`   📋 Tamaño del prompt: ${systemPrompt.length} chars`);
-  console.log(`   📊 Tamaño de datos: ${jsonStr.length} chars (${(jsonStr.length / 1024).toFixed(1)} KB)`);
-  console.log(`   🔑 Primeros 200 chars del system prompt:\n   ${systemPrompt.slice(0, 200).replace(/\n/g, '\n   ')}...`);
+  console.log(`   📋 Prompt: ${systemPrompt.length} chars`);
+  console.log(`   📊 Datos: ${dataStr.length} chars (${(dataStr.length / 1024).toFixed(1)} KB)`);
 
   const t0 = Date.now();
   try {
@@ -21,213 +20,156 @@ async function llamarLLM(systemPrompt: string, userJson: unknown, tipo: string):
       model: MODEL,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: jsonStr },
+        { role: "user", content: dataStr },
       ],
-      max_tokens: 800,
-      temperature: 0.7,
+      max_tokens: 1500,
+      temperature: 0.2,
     });
 
     const t1 = Date.now();
-    const result = response.choices[0]?.message?.content?.trim() || "No se pudo generar un insight.";
-    console.log(`   ⏱️  Tiempo de respuesta: ${(t1 - t0) / 1000}s`);
-    console.log(`   📝 Tamaño de respuesta: ${result.length} chars`);
-    console.log(`   📝 Primeros 300 chars de respuesta:\n   ${result.slice(0, 300).replace(/\n/g, '\n   ')}...`);
-    console.log(`   ✅ Uso de tokens: ${JSON.stringify(response.usage)}`);
+    const result = response.choices[0]?.message?.content?.trim() || "No se pudo generar el insight.";
+    console.log(`   ⏱️  ${(t1 - t0) / 1000}s | ${result.length} chars`);
+    console.log(`   📝 ${result.slice(0, 200)}...`);
+    console.log(`   ✅ Tokens: ${JSON.stringify(response.usage)}`);
 
     return result;
   } catch (error: any) {
     const t1 = Date.now();
-    console.error(`   ❌ [LLM ERROR] Tipo: ${tipo} | Tiempo: ${(t1 - t0) / 1000}s`);
-    console.error(`   ❌ Mensaje: ${error.message}`);
-    if (error.status) console.error(`   ❌ Status HTTP: ${error.status}`);
-    if (error.error) console.error(`   ❌ Detalle: ${JSON.stringify(error.error).slice(0, 500)}`);
+    console.error(`   ❌ [LLM ERROR] ${tipo} | ${(t1 - t0) / 1000}s | ${error.message}`);
     throw new Error(`Error en LLM (${tipo}): ${error.message}`);
   }
 }
 
+/* ═══════════════════════════ PATRONES ═══════════════════════════ */
+
 export async function generarInsightPatrones(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un analista de retail senior. Recibes un RESUMEN EJECUTIVO de KPIs ya procesados. Tu único trabajo es generar recomendaciones accionables y explicar el porqué estratégico.</rol>
+  const prompt = `Eres un analista senior de retail. Analiza los datos de ventas que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<formato>
-## Pronóstico y Estacionalidad
-(Razona sobre el forecast: método usado, variación interanual si existe, efecto festivo detectado. Da contexto estratégico del mes que viene.)
+Inclui en tu analisis:
+- Resumen general del periodo (tendencias, crecimiento, caidas)
+- Pronostico para el proximo mes con numeros concretos
+- Segmentacion de clientes (RFM): cuales son leales, cuales estan en riesgo
+- Recomendaciones accionables basadas en los datos
+- Alertas sobre churn, stock bajo o margenes
 
-## Recomendaciones Accionables
-1. [Acción concreta basada en el dato específico — incluye el número clave]
-2. [Acción concreta basada en el dato específico — incluye el número clave]
-3. [Acción concreta basada en el dato específico — incluye el número clave]
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-## Alertas Rápidas
-(Solo si hay stock bajo o churn alto — máximo 2 bullets con el dato exacto)
-</formato>
-
-<instrucciones>
-- NO repitas los KPIs que ya están en el reporte (total ventas, ticket promedio, etc.)
-- En el sección de Pronóstico, SIEMPRE menciona: (a) el valor estimado, (b) el método usado (holt o promedio simple), (c) si hay variación interanual y qué indica, (d) si hay efecto festivo y cómo ajusta el forecast
-- Enfócate en el POR QUÉ estratégico y el QUÉ HACER concreto
-- Cada recomendación debe ser medible y específica
-- Máximo 1 párrafo corto por bullet
-- No inventes datos que no estén en el JSON
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "patrones");
+  return llamarLLM(prompt, datos, "patrones");
 }
+
+/* ═══════════════════════════ DEMANDA GEO ═══════════════════════════ */
 
 export async function generarInsightDemanda(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un consultor de expansión comercial especializado en geomarketing. El gerente ya conoce los datos brutos (zonas, cobertura, competidores). Tu trabajo es evaluar estrategias y recomendar UNA con justificación de riesgo.</rol>
+  const prompt = `Eres un consultor de geomarketing. Analiza los datos geograficos que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<enfoques>
-- CONCENTRICO: Crecimiento radial desde el mercado central hacia zonas periféricas contiguas.
-  Ventajas: bajo riesgo, clientes existentes, operaciones centralizadas.
-  Desventajas: limitado a mercados cercanos, competencia local.
+Inclui en tu analisis:
+- Cobertura actual de sucursales y zonas con demanda no cubierta
+- Evaluacion de enfoque concentrico vs selectivo (cual aplicar y por que)
+- Competencia detectada por zona
+- Recomendacion estrategica concreta
+- Proximos pasos priorizados
 
-- SELECTIVO: Implantar sucursales en ciudades de primer orden u oasis de alta demanda sin presencia actual.
-  Ventajas: nuevos mercados, menos competencia local, diversificación geográfica.
-  Desventajas: mayor inversión, operaciones dispersas, riesgo de marca desconocida.
-</enfoques>
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-<formato>
-## Evaluación de Enfoques
-### Enfoque Concéntrico
-- Aplicabilidad: [sí/no — justificar con datos de cobertura y zonas sin sucursal cercanas]
-- Riesgo principal en tu caso específico
-
-### Enfoque Selectivo
-- Aplicabilidad: [sí/no — justificar con datos de competencia y clientes fuera de cobertura]
-- Riesgo principal en tu caso específico
-
-## Recomendación Estratégica
-(Recomienda UN enfoque con confianza estimada [alta/media/baja]. Justifica con 2 datos específicos del JSON. Menciona qué pasa si se elige el otro enfoque.)
-
-## Próximos Pasos Concretos
-(2 acciones inmediatas basadas en la recomendación)
-</formato>
-
-<instrucciones>
-- Evalúa AMBOS enfoques con honestidad, aunque uno sea claramente mejor
-- NO repitas la lista de zonas ni el % de cobertura — eso ya está en el reporte
-- Justifica SIEMPRE con datos específicos del JSON
-- Sé conciso: máximo 2 párrafos por sección
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "demanda_geo");
+  return llamarLLM(prompt, datos, "demanda_geo");
 }
+
+/* ═══════════════════════════ RENDIMIENTO ═══════════════════════════ */
 
 export async function generarInsightRendimiento(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un consultor financiero de retail. El gerente ya ve los KPIs agregados y la comparativa por sucursal en el reporte. Tu trabajo es identificar por qué algunas sucursales rinden mejor que otras y dar recomendaciones para cerrar la brecha.</rol>
+  const prompt = `Eres un consultor financiero de retail. Analiza los datos de rendimiento que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<formato>
-## Comparativa entre Sucursales
-- Analiza las diferencias entre la mejor y peor sucursal (margen bruto, revenue, rotación)
-- Identifica 1-2 posibles causas de la brecha (estructura de costos, eficiencia operativa, mix de productos)
-- Menciona el dato exacto de la brecha de margen si está disponible
+Inclui en tu analisis:
+- Comparativa entre la mejor y peor sucursal (por que una rinde mas)
+- Brecha de margen y posibles causas
+- Estado del inventario (stock bajo, stock en exceso)
+- Recomendaciones concretas para cada sucursal (mejor, peor, general)
+- Puntos criticos que requieren atencion inmediata
 
-## Recomendaciones para Mejorar Rentabilidad
-1. [Acción concreta para replicar el éxito de la mejor sucursal en las demás — con el dato que la respalda]
-2. [Acción concreta para la peor sucursal — específica y medible]
-3. [Acción de optimización general — inventario, personal o margen]
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-## Puntos Críticos
-(Solo si hay stock bajo, inventario excesivo, crecimiento negativo o margen bajo — máximo 2 bullets con el dato exacto)
-</formato>
-
-<instrucciones>
-- NO repitas los KPIs del reporte — ya están visibles
-- Cuando haya datos de comparativa, enfócate en POR QUÉ hay diferencias entre sucursales
-- Si no hay datos de sucursales, da recomendaciones generales de rentabilidad
-- Cada recomendación debe ser medible y específica
-- Máximo 1 párrafo corto por bullet
-- No inventes datos que no estén en el JSON
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "rendimiento");
+  return llamarLLM(prompt, datos, "rendimiento");
 }
+
+/* ═══════════════════════════ SUCURSAL (COMPARATIVO) ═══════════════════════════ */
 
 export async function generarInsightSucursal(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un gerente de operaciones de retail. El ranking y las métricas de cada sucursal ya están en el reporte. Tu trabajo es dar recomendaciones operativas concretas.</rol>
+  const prompt = `Eres un gerente de operaciones de retail. Analiza los datos comparativos de sucursales que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<formato>
-## Recomendaciones Operativas
-1. [Acción para mejorar la peor sucursal — específica, medible y con el dato que la respalda]
-2. [Acción para replicar el éxito de la mejor — específica]
-3. [Acción de optimización general — aplica a todas las sucursales]
+Inclui en tu analisis:
+- Comparativa entre sucursales (quien lidera, quien necesita atencion)
+- Recomendaciones operativas concretas por sucursal con datos que las respalden
+- Riesgos identificados y sus consecuencias si no se mitigan
 
-## Riesgos Identificados
-(Máximo 2 bullets: qué puede empeorar si no se actúa, basado en la diferencia de margen o rotación)
-</formato>
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-<instrucciones>
-- NO repitas cuál es la mejor o peor sucursal — eso ya está calculado
-- Enfócate en POR QUÉ hay diferencia de rentabilidad (margen bruto, costos, personal)
-- Las recomendaciones deben ser concretas (ej: "redistribuir stock de X a Y", "capacitar empleados en Z")
-- Sé conciso: máximo 2 párrafos por sección
-- No inventes datos que no estén en el JSON
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "sucursal");
+  return llamarLLM(prompt, datos, "sucursal");
 }
+
+/* ═══════════════════════════ SUCURSAL INDIVIDUAL ═══════════════════════════ */
 
 export async function generarInsightSucursalIndividual(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un Auditor de Rendimiento para sucursales retail. Analizas UNA sola sucursal comparando este periodo con el anterior. Diagnosticas, alertas y recomiendas acciones inmediatas.</rol>
+  const prompt = `Eres un auditor de rendimiento de sucursal. Analiza los datos de UNA sucursal que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<formato>
-## Diagnóstico
-[Qué métrica clave (revenue, margen bruto, margen neto o ticket) se movió más vs periodo anterior, por qué pudo haber cambiado, y si la tendencia es positiva o negativa]
+Inclui en tu analisis:
+- Diagnostico de la variable mas importante (revenue, margen o ticket) y su cambio vs periodo anterior
+- Causas del cambio identificadas en los datos
+- Alertas criticas (stock bajo, churn, margen negativo)
+- Acciones inmediatas con plazo concreto
 
-## Alerta
-[Un riesgo inminente detectado: stock crítico bajo, clientes abandonando (inactivos), margen cayendo, o rotación muy baja. Solo si aplica — si todo está bien, indícalo.]
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-## Acción Inmediata
-1. [Tarea concreta ejecutable mañana mismo — con el dato específico que la respalda]
-2. [Tarea concreta ejecutable mañana mismo — con el dato específico que la respalda]
-</formato>
-
-<instrucciones>
-- NO repitas todos los KPIs del reporte — el gerente ya los ve
-- Diagnosticá con datos exactos del JSON (ej: "el margen neto cayó de 22% a 18% porque...")
-- Las acciones deben ser operativas, no estratégicas (ej: "revisar precios de X", "contactar a los Y clientes en riesgo")
-- Si hay stock bajo con pocos días restantes, priorizalo como alerta
-- Sé conciso: máximo 1-2 párrafos por sección
-- No inventes datos que no estén en el JSON
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "sucursal_individual");
+  return llamarLLM(prompt, datos, "sucursal_individual");
 }
 
+/* ═══════════════════════════ EQUILIBRIO ═══════════════════════════ */
+
+export async function generarInsightEquilibrio(datos: unknown): Promise<string> {
+  const prompt = `Eres un analista financiero de retail. Analiza los datos de punto de equilibrio que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
+
+Inclui en tu analisis:
+- Evaluacion de viabilidad (saludable, ajustada o de alto riesgo)
+- Brecha de seguridad entre el forecast y el punto de equilibrio
+- Riesgos operativos principales y sus factores
+- Recomendacion concreta (reducir costos, aumentar margen o crecer ingresos)
+
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
+
+  return llamarLLM(prompt, datos, "equilibrio");
+}
+
+/* ═══════════════════════════ CANIBALIZACION ═══════════════════════════ */
+
+export async function generarInsightCanibalizacion(datos: unknown): Promise<string> {
+  const prompt = `Eres un estratega de expansion de retail. Analiza los datos de canibalizacion (modelo de Huff) que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
+
+Inclui en tu analisis:
+- Nivel de canibalizacion (baja, moderada o alta) y su significado
+- Si es defensiva (conviene abrir) o danina (conviene reconsiderar)
+- Impacto estimado en la sucursal existente
+- Recomendacion final: ABRIR, EVALUAR o RECONSIDERAR, con justificacion
+
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
+
+  return llamarLLM(prompt, datos, "canibalizacion");
+}
+
+/* ═══════════════════════════ EXPANSION ═══════════════════════════ */
+
 export async function generarInsightExpansion(datos: unknown): Promise<string> {
-  const systemPrompt = `<rol>Eres un consultor de viabilidad de expansión comercial. Tu trabajo es evaluar UNA ubicación propuesta y dar una recomendación clara con confianza alta/media/baja.</rol>
+  const prompt = `Eres un consultor de viabilidad de expansion de retail. Analiza los datos de una ubicacion propuesta que te voy a dar y escribe un analisis narrativo en 3-4 parrafos en español.
 
-<formato>
-## Diagnóstico de Ubicación
-- Demanda: [evaluación de clientes potenciales yticket promedio]
-- Cobertura OSRM: [evaluación de accesibilidad por tiempo real]
-- Co-Tenencia: [evaluación de negocios complementarios y su score]
-- Saturación (IRS): [interpretación del IRS — oportunidad, saturado o moderado]
+Inclui en tu analisis:
+- Evaluacion de la demanda en la zona (clientes potenciales, ticket esperado)
+- Cobertura y accesibilidad (radio, tiempo de llegada)
+- Co-tenencia (negocios complementarios cercanos)
+- Saturacion del mercado (IRS)
+- Puntuacion de viabilidad general (0-100)
+- Recomendacion final: ABRIR, NO ABRIR o EVALUAR, con justificacion clara
+- Riesgos principales y probabilidad
+- Proximos pasos concretos
 
-## Puntuación de Viabilidad
-(0-100: Resume el balance entre demanda, co-tenencia y saturación)
+No uses formato JSON ni tablas. Solo parrafos narrativos. Se conciso pero completo.`;
 
-## Recomendación Final
-[ABRIR / NO ABRIR / EVALUAR] — 1 frase clara
-
-## Justificación
-(3 datos específicos del JSON que respaldan la recomendación)
-
-## Riesgos
-(Máximo 2 bullets: qué puede salir mal si se abre aquí)
-
-## Próximos Pasos
-(2 acciones concretas si se decide avanzar)
-</formato>
-
-<instrucciones>
-- NUNCA repitas datos que ya están en el reporte — solo analízalos y saca conclusiones
-- El IRS > 1.5 = alta oportunidad, IRS 0.8-1.5 = moderado, IRS < 0.8 = saturado
-- El co-tenencia score > 70 = muy bueno, 40-70 = moderado, < 40 = bajo
-- Da una recomendación CLARA, no "evaluar más" a menos que los datos sean contradictorios
-- Sé conciso: máximo 2 párrafos por sección
-- No inventes datos que no estén en el JSON
-</instrucciones>`;
-
-  return llamarLLM(systemPrompt, datos, "expansion");
+  return llamarLLM(prompt, datos, "expansion");
 }

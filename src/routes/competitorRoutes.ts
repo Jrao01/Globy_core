@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { SearchCompetitors, GetSearchHistory, GetCompetitors } from "../controllers/CompetitorControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
 import { scrapingLimiter } from "../middleware/rateLimit.js";
 import { validate, schemas } from "../middleware/validate.js";
 

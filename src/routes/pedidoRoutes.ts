@@ -9,9 +9,10 @@ import {
   UpdateStatus,
   GetCompra,
   GetComprasByClienteController,
+  VerificarPagoMovil,
 } from "../controllers/CompraControllers.js";
 import { GetDetallesByCompra, AddDetalle } from "../controllers/CompraDetalleControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
 import { validate, schemas } from "../middleware/validate.js";
 
 const router = Router();
@@ -25,6 +26,7 @@ router.get("/cliente/:clienteId", verifyToken, verifyRole("admin", "gerente", "t
 router.post<{ id: string }>("/:id/assign", verifyToken, verifyRole("admin", "gerente", "delivery"), AssignCompra);
 router.put<{ id: string }>("/:id/status", verifyToken, verifyRole("admin", "gerente", "trabajador", "delivery"), UpdateStatus);
 router.get<{ id: string }>("/:id", verifyToken, GetCompra);
+router.post("/verificar-pago-movil", verifyToken, VerificarPagoMovil);
 
 // Detalles
 router.get<{ compraId: string }>("/:compraId/detalles", verifyToken, GetDetallesByCompra);

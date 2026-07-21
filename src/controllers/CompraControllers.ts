@@ -8,8 +8,12 @@ import {
   assignCompraToRepartidor,
   updateCompraStatus,
   getCompraById,
+  verificarPagoMovil,
 } from "../services/CompraService.js";
 import type { AuthRequest, IdParams } from "../types/index.js";
+import { sendTemplateEmail, getEmpresaConfig } from "../services/EmailService.js";
+import { PedidoConfirmado } from "../emails/templates/PedidoConfirmado.js";
+import { CompraDirectaConfirmada } from "../emails/templates/CompraDirectaConfirmada.js";
 
 export const GetAllCompras: RequestHandler = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -21,9 +25,7 @@ export const GetAllCompras: RequestHandler = async (req: AuthRequest, res: Respo
 
     const where: any = {};
 
-    if (user.rol === "gerente") {
-      where.sucursalId = user.sucursalId;
-    } else if (user.rol === "trabajador") {
+    if ((user.rol === "gerente" || user.rol === "trabajador") && user.sucursalId != null) {
       where.sucursalId = user.sucursalId;
     }
     // admin sees all — no filter
@@ -61,6 +63,61 @@ export const CreateCompra: RequestHandler = async (req: Request, res: Response):
       tipo || "compra_web",
       { metodoPago, refPago, direccionEntrega, coordenadasLat, coordenadasLng, distanciaKm, costoEnvio }
     );
+
+    const cliente = await prisma.cliente.findUnique({
+      where: { id: compra.clienteId },
+      select: { nombre: true, correo: true },
+    });
+
+    const detallesConProducto = await prisma.compraDetalle.findMany({
+      where: { compraId: compra.id },
+      include: { producto: { select: { nombre: true } } },
+    });
+
+    const empresaConfig = await getEmpresaConfig();
+    const emailDetalles = detallesConProducto.map((d) => ({
+      producto: d.producto.nombre,
+      cantidad: d.cantidad,
+      precioUnit: d.precioUnit,
+      total: d.cantidad * d.precioUnit,
+    }));
+
+    if (compra.tipo === "compra_directa") {
+      const sucursal = await prisma.sucursal.findUnique({
+        where: { id: compra.sucursalId },
+        select: { nombre: true },
+      });
+      sendTemplateEmail(
+        cliente!.correo,
+        `Compra #${compra.id} registrada en sucursal`,
+        CompraDirectaConfirmada,
+        {
+          clienteNombre: cliente!.nombre,
+          compraId: compra.id,
+          total: compra.total,
+          sucursalNombre: sucursal?.nombre || "",
+          fecha: compra.fecha.toLocaleDateString("es-VE"),
+          detalles: emailDetalles,
+          empresaConfig,
+        },
+      ).catch((err) => console.error("[Email] Error enviando confirmación de compra directa:", err.message));
+    } else {
+      sendTemplateEmail(
+        cliente!.correo,
+        `Pedido #${compra.id} confirmado`,
+        PedidoConfirmado,
+        {
+          clienteNombre: cliente!.nombre,
+          compraId: compra.id,
+          total: compra.total,
+          direccionEntrega: compra.direccionEntrega || undefined,
+          fecha: compra.fecha.toLocaleDateString("es-VE"),
+          detalles: emailDetalles,
+          empresaConfig,
+        },
+      ).catch((err) => console.error("[Email] Error enviando confirmación de pedido:", err.message));
+    }
+
     res.status(201).json({ message: "Compra creada", data: compra });
   } catch (error: any) {
     if (error.message === "PRODUCT_NOT_FOUND") {
@@ -69,6 +126,10 @@ export const CreateCompra: RequestHandler = async (req: Request, res: Response):
     }
     if (error.message === "SUCURSAL_NOT_FOUND") {
       res.status(404).json({ message: "No hay sucursales disponibles" });
+      return;
+    }
+    if (error.message === "INSUFFICIENT_STOCK") {
+      res.status(400).json({ message: "Stock insuficiente para uno o más productos" });
       return;
     }
     console.error(error);
@@ -164,6 +225,14 @@ export const UpdateStatus: RequestHandler<IdParams> = async (req: AuthRequest<Id
       res.status(404).json({ message: "Pedido no encontrado" });
       return;
     }
+    if (error.message === "TERMINAL_STATUS") {
+      res.status(409).json({ message: "No se puede modificar un pedido en estado terminal (entregado, completada o cancelado)" });
+      return;
+    }
+    if (error.message === "INVALID_TRANSITION") {
+      res.status(422).json({ message: "Transición de estado no permitida" });
+      return;
+    }
     console.error(error);
     res.status(500).json({ message: "Error actualizando status" });
   }
@@ -240,5 +309,20 @@ export const GetComprasByClienteController: RequestHandler = async (req: AuthReq
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error al obtener pedidos del cliente" });
+  }
+};
+
+export const VerificarPagoMovil: RequestHandler = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { referencia, monto } = req.body;
+    if (!referencia || monto === undefined) {
+      res.status(400).json({ message: "referencia y monto son requeridos" });
+      return;
+    }
+    const result = await verificarPagoMovil(referencia, Number(monto));
+    res.json({ data: result });
+  } catch (error) {
+    console.error("Error verificando pago móvil:", error);
+    res.status(500).json({ message: "Error al verificar pago móvil" });
   }
 };

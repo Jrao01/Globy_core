@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { CreateSucursal, GetAllSucursales, GetSucursalById, UpdateSucursal, EnableSucursal, DisableSucursal } from "../controllers/SucursalControllers.js";
-import { verifyToken, verifyRole } from "../middlewares/authMiddleware.js";
+import { verifyToken, verifyRole } from "../middleware/authMiddleware.js";
 
 const router = Router();
 
